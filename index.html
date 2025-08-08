@@ -84,9 +84,7 @@
   </div>
 
   <script>
-    /* === CONFIG === */
-    const LORE_SRC = "https://cryptopilot16.github.io/UMS/lore.mp4";
-
+    /* === Hotspot links === */
     const DEFAULT_LABELS = ['Twitter','Chart','Telegram','Community','Lore'];
     const HOTSPOT_LINKS = {
       'Twitter': 'https://x.com/UMSonSOL',
@@ -96,6 +94,58 @@
       'Lore': 'popup'
     };
 
+    /* === Generic asset resolver (images like scene3.png) === */
+    function resolveAssetSrc(filename, v = "5", base = "https://cryptopilot16.github.io/UMS/") {
+      const candidates = [
+        `${filename}?v=${v}`,
+        `./${filename}?v=${v}`,
+        `/UMS/${filename}?v=${v}`,
+        `${base}${filename}?v=${v}`,
+      ];
+      return new Promise((resolve, reject) => {
+        let i = 0;
+        const tryNext = () => {
+          if (i >= candidates.length) return reject(new Error(`No source worked for ${filename}`));
+          const test = candidates[i++];
+          const img = new Image();
+          const timeout = setTimeout(() => { cleanup(); tryNext(); }, 5000);
+          const cleanup = () => { clearTimeout(timeout); img.onload = null; img.onerror = null; };
+          img.onload = () => { cleanup(); resolve(test); };
+          img.onerror = () => { cleanup(); tryNext(); };
+          img.src = test;
+        };
+        tryNext();
+      });
+    }
+
+    /* === Lore source resolver (video) === */
+    const LORE_CANDIDATES = [
+      'lore.mp4?v=5',
+      './lore.mp4?v=5',
+      '/UMS/lore.mp4?v=5',
+      'https://cryptopilot16.github.io/UMS/lore.mp4?v=5'
+    ];
+    function resolveLoreSrc(cands = LORE_CANDIDATES, timeoutMs = 5000) {
+      return new Promise((resolve, reject) => {
+        let i = 0;
+        const tryNext = () => {
+          if (i >= cands.length) return reject(new Error('No Lore source worked. Check path/name/casing.'));
+          const testSrc = cands[i++];
+          const v = document.createElement('video');
+          v.preload = 'metadata';
+          v.playsInline = true;
+          v.muted = true;
+          let t = setTimeout(() => { cleanup(); tryNext(); }, timeoutMs);
+          const cleanup = () => { clearTimeout(t); v.onloadedmetadata = null; v.onerror = null; v.removeAttribute('src'); v.load(); };
+          v.onloadedmetadata = () => { cleanup(); resolve(testSrc); };
+          v.onerror = () => { cleanup(); tryNext(); };
+          v.src = testSrc; v.load();
+        };
+        tryNext();
+      });
+    }
+
+    /* === Scenes === */
     let scenes = [
       { background: 'scene1.mp4', type: 'video', class: 'darken', text: "Get ready. You're entering the Underground Money Society.", autoAdvance: true },
       { background: 'scene2.mp4', type: 'video', class: 'darken', text: 'The hardest degens of the Solana trenches', autoAdvance: true },
@@ -103,21 +153,14 @@
     ];
     let currentScene = 0;
 
-    // Audio snapshot for Lore modal
+    /* === State === */
     let _audioWasPlaying = false;
-
-    // Scene 3 mobile portrait pan state
     let pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
 
-    function isMobilePortrait() {
-      return window.matchMedia('(orientation: portrait)').matches && window.innerWidth <= 768;
-    }
-    function isMobileLandscape() {
-      return window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 500;
-    }
-    function isMobileDevice() {
-      return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    }
+    /* === Helpers === */
+    function isMobilePortrait() { return window.matchMedia('(orientation: portrait)').matches && window.innerWidth <= 768; }
+    function isMobileLandscape() { return window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 500; }
+    function isMobileDevice() { return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
 
     function getHotspots() {
       if (isMobileLandscape()) {
@@ -144,7 +187,6 @@
       if (nextIndex >= scenes.length) nextIndex = scenes.length - 1;
       if (nextIndex < 0) nextIndex = 0;
       if (nextIndex === currentScene) return;
-
       const sc = document.getElementById('scene');
       sc.classList.add('scene-fade-out');
       setTimeout(() => {
@@ -153,11 +195,7 @@
         requestAnimationFrame(() => sc.classList.remove('scene-fade-out'));
       }, FADE_MS);
     }
-
-    function advanceScene() {
-      if (currentScene === 2) return; // lock at end
-      gotoScene(currentScene + 1);
-    }
+    function advanceScene() { if (currentScene !== 2) gotoScene(currentScene + 1); }
 
     /* ========== Render/update ========== */
     function updateScene() {
@@ -168,26 +206,16 @@
 
       // Advance button lock on scene 3
       const advanceBtn = document.getElementById('advanceBtn');
-      if (currentScene === 2) advanceBtn.classList.add('disabled');
-      else advanceBtn.classList.remove('disabled');
+      if (currentScene === 2) advanceBtn.classList.add('disabled'); else advanceBtn.classList.remove('disabled');
 
       const isScene3 = current.background.includes('scene3');
       const rotateForMobile = isScene3 && isMobileLandscape();
       const panForMobile = isScene3 && isMobilePortrait();
 
-      // === Scene content ===
       if (current.type === 'video') {
         const video = document.createElement('video');
-        Object.assign(video, {
-          src: current.background,
-          autoplay: true,
-          loop: false,
-          muted: true,
-          playsInline: true
-        });
-        video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
-        video.setAttribute('muted', '');
+        Object.assign(video, { src: current.background, autoplay: true, loop: false, muted: true, playsInline: true });
+        video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', ''); video.setAttribute('muted', '');
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
 
@@ -195,7 +223,7 @@
         const advanceIfCurrent = () => { if (currentScene === sceneIndexAtCreate) advanceScene(); };
 
         const tryPlay = () => video.play().catch(()=>{});
-        tryPlay(); // immediate attempt
+        tryPlay();
         video.addEventListener('canplay', tryPlay, { once: true });
         video.addEventListener('loadeddata', tryPlay, { once: true });
         video.addEventListener('loadedmetadata', tryPlay, { once: true });
@@ -215,10 +243,10 @@
         // Mobile portrait: swipe panorama with hotspots locked to the image
         const stage = document.createElement('div'); stage.className = 'pan-stage';
         const surface = document.createElement('div'); surface.className = 'pan-surface';
-        const img = document.createElement('img'); img.className = 'pan-img'; img.src = current.background; img.alt = '';
+        const img = document.createElement('img'); img.className = 'pan-img'; img.alt = '';
         surface.appendChild(img);
 
-        // Add hotspots INSIDE the surface so they move with the image
+        // Hotspots INSIDE the surface so they move with the image
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots = getHotspots();
         (current.hotspots || []).forEach((hs, i) => {
@@ -233,19 +261,32 @@
 
         stage.appendChild(surface);
         sceneContainer.appendChild(stage);
-        img.addEventListener('load', () => setupPanorama(stage, surface, img));
+
+        resolveAssetSrc(current.background).then(src => {
+          img.src = src;
+          img.addEventListener('load', () => setupPanorama(stage, surface, img), { once: true });
+        }).catch(err => console.error(err));
 
       } else {
-        // Desktop + mobile landscape
-        const img = document.createElement('div');
+        // Desktop + mobile landscape: show via <img> so we can rotate if needed
+        const img = document.createElement('img');
         img.id = 'scene-image';
-        img.style.background = `url('${current.background}') center/cover no-repeat`;
+        img.alt = '';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.position = 'absolute';
+        img.style.top = '0';
+        img.style.left = '0';
         if (rotateForMobile) img.className = 'scene3-mobile';
         if (current.class) img.classList.add(current.class);
         sceneContainer.appendChild(img);
+
+        resolveAssetSrc(current.background).then(src => { img.src = src; })
+          .catch(err => console.error(err));
       }
 
-      // === Top-level hotspots (desktop + mobile landscape path) ===
+      // Top-level hotspots (desktop + mobile landscape)
       if (current.hotspots && (!isScene3 || !panForMobile)) {
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots.forEach((hs, i) => {
@@ -264,27 +305,15 @@
     }
 
     function attachHotspotHandlers(el, label) {
-      // Click for desktop
-      el.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        handleHotspotClick(label);
-      });
-      // Touch for iOS/Android (use touchend so it feels like a tap)
-      el.addEventListener('touchend', (ev) => {
-        ev.stopPropagation();
-        handleHotspotClick(label);
-      }, { passive: true });
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); handleHotspotClick(label); });
+      el.addEventListener('touchend', (ev) => { ev.stopPropagation(); handleHotspotClick(label); }, { passive: true });
     }
 
     /* ========== Panorama (Scene 3 mobile portrait, drag only) ========== */
     function setupPanorama(stageEl, surfaceEl, imgEl) {
-      pan.active = true;
-      pan.stageEl = stageEl;
-      pan.surfaceEl = surfaceEl;
-      pan.imgEl = imgEl;
+      pan.active = true; pan.stageEl = stageEl; pan.surfaceEl = surfaceEl; pan.imgEl = imgEl;
 
-      const stageW = stageEl.clientWidth;
-      const stageH = stageEl.clientHeight;
+      const stageW = stageEl.clientWidth, stageH = stageEl.clientHeight;
       const ar = imgEl.naturalWidth / imgEl.naturalHeight;
 
       // Ensure there is always something to pan: at least 1.5x viewport width
@@ -295,25 +324,20 @@
       imgEl.style.width = imgW + 'px';
       surfaceEl.style.width = imgW + 'px';
 
-      // bounds: fully left = 0; fully right = stageW - imgW (<= 0)
       pan.maxX = 0;
       pan.minX = Math.min(0, stageW - imgW);
 
-      // start perfectly centered (midpoint)
+      // start centered
       pan.x = Math.round((pan.minX + pan.maxX) / 2);
       applyPan();
 
-      // drag handlers (attach to the SURFACE so iOS allows preventDefault)
       const onDown = (e) => {
-        // 👉 Ignore drags that start on a hotspot so taps work
+        // ignore drags that start on a hotspot so taps work
         if (e.target && e.target.closest && e.target.closest('.hotspot')) return;
-
         const x = (e.touches ? e.touches[0].clientX : e.clientX);
-        pan.startX = x - pan.x;
-        pan.dragging = true;
+        pan.startX = x - pan.x; pan.dragging = true;
         if (e.cancelable) e.preventDefault();
       };
-
       const onMove = (e) => {
         if (!pan.dragging) return;
         const x = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -321,10 +345,8 @@
         applyPan();
         if (e.cancelable) e.preventDefault();
       };
-
       const onUp = () => { pan.dragging = false; };
 
-      // IMPORTANT: passive:false so preventDefault works on iOS
       surfaceEl.addEventListener('touchstart', onDown, { passive: false });
       surfaceEl.addEventListener('touchmove',  onMove, { passive: false });
       surfaceEl.addEventListener('touchend',   onUp,   { passive: true  });
@@ -333,7 +355,6 @@
       window.addEventListener('mousemove', onMove, { passive: false });
       window.addEventListener('mouseup',   onUp,   { passive: true  });
 
-      // store exact fns/targets so teardown can remove them
       pan.listeners = [
         ['touchstart', onDown, surfaceEl],
         ['touchmove',  onMove, surfaceEl],
@@ -346,20 +367,16 @@
 
     function applyPan() { if (pan.surfaceEl) pan.surfaceEl.style.transform = `translate3d(${pan.x}px,0,0)`; }
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
     function teardownPanorama() {
       if (!pan.active) return;
-      pan.listeners.forEach(([type, fn, target]) => {
-        target.removeEventListener(type, fn);
-      });
+      pan.listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn));
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
-    /* ========== Lore modal (desktop+mobile-safe autoplay) ========== */
+    /* ========== Lore modal (desktop+mobile-safe autoplay, with resolver) ========== */
     function restoreAudio() {
       const audio = document.getElementById('radio');
-      if (_audioWasPlaying) audio.play().catch(()=>{});
-      else { try { audio.pause(); } catch {} }
+      if (_audioWasPlaying) audio.play().catch(()=>{}); else { try { audio.pause(); } catch {} }
     }
 
     function handleHotspotClick(label) {
@@ -370,69 +387,63 @@
         const audio = document.getElementById('radio');
         const tapOverlay = document.getElementById('tapToPlay');
 
-        _audioWasPlaying = !audio.paused;
-        try { audio.pause(); } catch {}
+        _audioWasPlaying = !audio.paused; try { audio.pause(); } catch {}
 
-        // Desktop vs Mobile behavior
-        const mobile = isMobileDevice();
+        popup.style.display = 'flex'; popup.classList.add('show');
 
-        // common setup
-        video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
-        video.preload = 'auto';
-        video.src = LORE_SRC;
-        video.currentTime = 0;
+        resolveLoreSrc().then((src) => {
+          const mobile = isMobileDevice();
 
-        popup.style.display = 'flex';
-        popup.classList.add('show');
+          // common prep
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
+          video.preload = 'auto';
+          video.src = src;
+          video.currentTime = 0;
 
-        if (!mobile) {
-          // DESKTOP: play with sound immediately (the hotspot click is a gesture)
-          video.muted = false;
-          video.removeAttribute('muted');
-          tapOverlay.style.display = 'none';
-          video.play().catch(() => {
-            // As a fallback (rare), try muted then unmute
-            video.muted = true;
-            video.setAttribute('muted','');
-            video.play().then(() => { video.muted = false; video.removeAttribute('muted'); }).catch(()=>{});
-          });
-        } else {
-          // MOBILE: start muted so autoplay succeeds, then unmute after play
-          video.muted = true;
-          video.setAttribute('muted','');
-          video.play()
-            .then(() => {
-              // bring in audio once it's rolling
-              video.muted = false;
-              video.removeAttribute('muted');
+          if (!mobile) {
+            // DESKTOP: play with sound immediately
+            video.muted = false; video.removeAttribute('muted');
+            tapOverlay.style.display = 'none';
+            video.play().catch(() => {
+              // rare fallback: try muted first then unmute
+              video.muted = true; video.setAttribute('muted','');
+              video.play().then(() => { video.muted = false; video.removeAttribute('muted'); }).catch(()=>{});
+            });
+          } else {
+            // MOBILE: start muted to satisfy autoplay; then unmute
+            video.muted = true; video.setAttribute('muted','');
+            video.play().then(() => {
+              video.muted = false; video.removeAttribute('muted');
               tapOverlay.style.display = 'none';
-            })
-            .catch(() => {
-              // if still blocked, show one-tap overlay
+            }).catch(() => {
               tapOverlay.style.display = 'flex';
             });
 
-          const startWithSound = (e) => {
-            e.stopPropagation();
-            tapOverlay.style.display = 'none';
-            video.muted = false;
-            video.removeAttribute('muted');
-            video.play().catch(()=>{});
-          };
-          tapOverlay.onclick = startWithSound;
-          tapOverlay.addEventListener('touchend', startWithSound, { passive: true });
+            const startWithSound = (e) => {
+              e.stopPropagation();
+              tapOverlay.style.display = 'none';
+              video.muted = false; video.removeAttribute('muted');
+              video.play().catch(()=>{});
+            };
+            tapOverlay.onclick = startWithSound;
+            tapOverlay.addEventListener('touchend', startWithSound, { passive: true });
+            video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
+          }
 
-          video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
-        }
+          video.onerror = () => console.error('Lore video failed to load:', src);
+          const onDone = () => restoreAudio();
+          video.onended = onDone;
+          video.onemptied = onDone;
 
-        video.onerror = () => console.error('Lore video failed to load. Check URL/MIME/CORS.');
-        const onDone = () => restoreAudio();
-        video.onended = onDone;
-        video.onemptied = onDone;
+        }).catch((err) => {
+          console.error(err);
+          popup.classList.remove('show');
+          popup.style.display = 'none';
+          restoreAudio();
+        });
 
       } else if (link) {
-        // Open external links
         window.open(link, '_blank');
       }
     }
@@ -473,9 +484,7 @@
     window.addEventListener('wheel', (event) => {
       if (currentScene === 2) return;
       if (event.deltaY < 0) advanceScene();
-      else if (event.deltaY > 0) {
-        gotoScene(currentScene - 1);
-      }
+      else if (event.deltaY > 0) gotoScene(currentScene - 1);
     });
 
     window.onload = () => {
