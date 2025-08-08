@@ -51,7 +51,7 @@
 
     /* Scene 3 mobile portrait – swipe panorama scaffold */
     .pan-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
-    .pan-surface { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
+    .pan-surface { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; touch-action: none; } /* added touch-action */
     .pan-img { position: absolute; top: 0; left: 0; height: 100%; width: auto; user-select: none; -webkit-user-drag: none; pointer-events: none; }
     .pan-surface .hotspot { pointer-events: auto; } /* tappable while moving with image */
 
@@ -83,7 +83,7 @@
 
   <script>
     /* === CONFIG === */
-    const LORE_SRC = "https://cryptopilot16.github.io/UMS/lore.mp4"; // GitHub Pages-hosted video
+    const LORE_SRC = "https://cryptopilot16.github.io/UMS/lore.mp4";
 
     const DEFAULT_LABELS = ['Twitter','Chart','Telegram','Community','Lore'];
     const HOTSPOT_LINKS = {
@@ -264,7 +264,11 @@
       const stageW = stageEl.clientWidth;
       const stageH = stageEl.clientHeight;
       const ar = imgEl.naturalWidth / imgEl.naturalHeight;
-      const imgW = Math.round(stageH * ar);
+
+      // Ensure there is always something to pan: at least 1.5x viewport width
+      const MIN_W_FACTOR = 1.5;
+      const baseW = Math.round(stageH * ar);
+      const imgW = Math.max(baseW, Math.round(stageW * MIN_W_FACTOR));
 
       imgEl.style.width = imgW + 'px';
       surfaceEl.style.width = imgW + 'px';
@@ -277,11 +281,8 @@
       pan.x = Math.round((pan.minX + pan.maxX) / 2);
       applyPan();
 
-      // if image isn't wider than stage, no drag
-      const draggable = imgW > stageW;
-
+      // drag handlers (attach to the SURFACE so iOS allows preventDefault)
       const onDown = (e) => {
-        if (!draggable) return;
         const x = (e.touches ? e.touches[0].clientX : e.clientX);
         pan.startX = x - pan.x;
         pan.dragging = true;
@@ -298,21 +299,21 @@
 
       const onUp = () => { pan.dragging = false; };
 
-      // IMPORTANT: passive: false so preventDefault() is allowed
-      stageEl.addEventListener('touchstart', onDown, { passive: false });
-      stageEl.addEventListener('touchmove', onMove, { passive: false });
-      stageEl.addEventListener('touchend', onUp, { passive: true });
+      // IMPORTANT: passive:false so preventDefault works on iOS
+      surfaceEl.addEventListener('touchstart', onDown, { passive: false });
+      surfaceEl.addEventListener('touchmove',  onMove, { passive: false });
+      surfaceEl.addEventListener('touchend',   onUp,   { passive: true  });
 
-      stageEl.addEventListener('mousedown', (e) => { e.preventDefault(); onDown(e); });
+      surfaceEl.addEventListener('mousedown', (e) => { e.preventDefault(); onDown(e); }, { passive: false });
       window.addEventListener('mousemove', onMove, { passive: false });
-      window.addEventListener('mouseup', onUp, { passive: true });
+      window.addEventListener('mouseup',   onUp,   { passive: true  });
 
-      // store for teardown
+      // store exact fns/targets so teardown can remove them
       pan.listeners = [
-        ['touchstart', onDown, stageEl],
-        ['touchmove',  onMove, stageEl],
-        ['touchend',   onUp,   stageEl],
-        ['mousedown',  onDown, stageEl],
+        ['touchstart', onDown, surfaceEl],
+        ['touchmove',  onMove, surfaceEl],
+        ['touchend',   onUp,   surfaceEl],
+        ['mousedown',  onDown, surfaceEl],
         ['mousemove',  onMove, window],
         ['mouseup',    onUp,   window],
       ];
@@ -323,7 +324,9 @@
 
     function teardownPanorama() {
       if (!pan.active) return;
-      pan.listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn));
+      pan.listeners.forEach(([type, fn, target]) => {
+        target.removeEventListener(type, fn);
+      });
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
@@ -351,7 +354,7 @@
         video.setAttribute('muted', '');
         video.muted = true;
         video.preload = 'auto';
-        video.src = LORE_SRC; // <-- GitHub Pages video
+        video.src = LORE_SRC;
         video.currentTime = 0;
 
         // show popup and try to play immediately (same gesture)
@@ -373,7 +376,6 @@
         tapOverlay.addEventListener('touchend', startWithSound);
 
         video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
-
         video.onerror = () => console.error('Lore video failed to load. Check URL/MIME/CORS.');
 
         const onDone = () => restoreAudio();
@@ -441,4 +443,3 @@
   </script>
 </body>
 </html>
-
