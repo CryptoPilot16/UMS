@@ -45,7 +45,7 @@
         transform-origin: center center;
       }
       .hotspot.mobile-scene3 { transform: rotate(-90deg); }
-      .hotspot[data-label="Lore"] { top: 60% !important; } /* drop lower to avoid audio btn */
+      .hotspot[data-label="Lore"] { top: 60% !important; }
       #ui { top: auto; bottom: 20px; left: 20px; }
     }
 
@@ -53,7 +53,7 @@
     .pan-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
     .pan-surface { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
     .pan-img { position: absolute; top: 0; left: 0; height: 100%; width: auto; user-select: none; -webkit-user-drag: none; pointer-events: none; }
-    .pan-surface .hotspot { pointer-events: auto; } /* tappable while moving with image */
+    .pan-surface .hotspot { pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -73,9 +73,10 @@
   <!-- Popup modal -->
   <div id="popup" onclick="closePopup(event)">
     <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
-    <video id="popupVideo" controls playsinline></video>
+    <!-- add autoplay+muted inline for iOS -->
+    <video id="popupVideo" controls playsinline webkit-playsinline muted autoplay preload="auto" crossorigin="anonymous"></video>
 
-    <!-- Tap-to-Play overlay (shown if autoplay is blocked) -->
+    <!-- Tap-to-Play overlay -->
     <div id="tapToPlay" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center; z-index:12; background:rgba(0,0,0,0.45);">
       <button style="font-size:18px; padding:12px 18px; border-radius:8px; border:1px solid #fff; background:rgba(255,255,255,0.12); color:#fff;">
         Tap to Play ▶
@@ -167,7 +168,6 @@
 
       // === Scene content ===
       if (current.type === 'video') {
-        // Create a mobile-friendly autoplay that reliably fires ended/near-end
         const video = document.createElement('video');
         Object.assign(video, {
           src: current.background,
@@ -186,7 +186,7 @@
         const advanceIfCurrent = () => { if (currentScene === sceneIndexAtCreate) advanceScene(); };
 
         const tryPlay = () => video.play().catch(()=>{});
-        requestAnimationFrame(tryPlay);
+        tryPlay(); // immediate, in same task on some devices
         video.addEventListener('canplay', tryPlay, { once: true });
         video.addEventListener('loadeddata', tryPlay, { once: true });
         video.addEventListener('loadedmetadata', tryPlay, { once: true });
@@ -209,7 +209,7 @@
         const img = document.createElement('img'); img.className = 'pan-img'; img.src = current.background; img.alt = '';
         surface.appendChild(img);
 
-        // Add hotspots INSIDE the surface so they move with the image
+        // Add hotspots inside the surface so they move with the image
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots = getHotspots();
         (current.hotspots || []).forEach((hs, i) => {
@@ -236,7 +236,7 @@
         sceneContainer.appendChild(img);
       }
 
-      // === Top-level hotspots (desktop + mobile landscape path) ===
+      // Top-level hotspots (desktop + mobile landscape)
       if (current.hotspots && (!isScene3 || !panForMobile)) {
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots.forEach((hs, i) => {
@@ -273,7 +273,7 @@
       pan.maxX = 0;
       pan.minX = Math.min(0, stageW - imgW);
 
-      // ✅ start perfectly centered (midpoint)
+      // start perfectly centered
       pan.x = Math.round((pan.minX + pan.maxX) / 2);
       applyPan();
 
@@ -328,50 +328,50 @@
         const audio = document.getElementById('radio');
         const tapOverlay = document.getElementById('tapToPlay');
 
-        // snapshot & pause bg music
         _audioWasPlaying = !audio.paused;
         try { audio.pause(); } catch {}
 
-        // prepare video for iOS autoplay policies
+        // Prepare for iOS: inline, muted, autoplay-friendly
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.setAttribute('muted', ''); // attribute matters on iOS
-        video.muted = true;              // ensure muted for autoplay
+        video.setAttribute('muted', '');  // attribute matters
+        video.muted = true;
         video.preload = 'auto';
         video.src = 'lore.mp4';
         video.currentTime = 0;
-        video.load();
 
-        // show popup
+        // show popup and try to play immediately (same gesture)
         popup.style.display = 'flex';
-        requestAnimationFrame(async () => {
-          popup.classList.add('show');
+        popup.classList.add('show');
 
-          // attempt muted autoplay in the user-gesture context
-          video.play()
-            .then(() => {
-              // success; keep muted (iOS usually requires another gesture to unmute)
-              tapOverlay.style.display = 'none';
-            })
-            .catch(() => {
-              // blocked -> show overlay; one tap will play with sound
-              tapOverlay.style.display = 'flex';
-            });
-        });
+        // try play synchronously — critical for iOS
+        video.play()
+          .then(() => {
+            // success (muted)
+            tapOverlay.style.display = 'none';
+          })
+          .catch(() => {
+            // blocked — ask for one tap to start w/ sound
+            tapOverlay.style.display = 'flex';
+          });
 
-        // Overlay tap = start playback with sound
-        const startWithSound = () => {
+        // overlay tap = unmute + play
+        const startWithSound = (e) => {
+          e.stopPropagation();
           tapOverlay.style.display = 'none';
           video.muted = false;
           video.removeAttribute('muted');
-          video.play().catch(()=>{ /* if still blocked, controls remain */ });
+          video.play().catch(()=>{});
         };
         tapOverlay.onclick = startWithSound;
+        tapOverlay.addEventListener('touchend', startWithSound);
 
-        // Hide overlay once playing anyway
+        // also hide overlay once playing, just in case
         video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
 
-        // Restore bg music when video ends/unloads
+        // file load errors — useful to debug if src/MIME is wrong
+        video.onerror = () => console.error('Lore video failed to load. Check URL/MIME/CORS.');
+
         const onDone = () => restoreAudio();
         video.onended = onDone;
         video.onemptied = onDone;
@@ -434,6 +434,93 @@
         }
       });
     };
+
+    /* ===== Scene renderers reused from earlier replies (unchanged except where noted) ===== */
+    function updateScene() {
+      teardownPanorama();
+      const sceneContainer = document.getElementById('scene');
+      sceneContainer.innerHTML = '';
+      const current = scenes[currentScene];
+
+      const advanceBtn = document.getElementById('advanceBtn');
+      if (currentScene === 2) advanceBtn.classList.add('disabled'); else advanceBtn.classList.remove('disabled');
+
+      const isScene3 = current.background.includes('scene3');
+      const rotateForMobile = isScene3 && isMobileLandscape();
+      const panForMobile = isScene3 && isMobilePortrait();
+
+      if (current.type === 'video') {
+        const video = document.createElement('video');
+        Object.assign(video, { src: current.background, autoplay: true, loop: false, muted: true, playsInline: true });
+        video.setAttribute('playsinline',''); video.setAttribute('webkit-playsinline',''); video.setAttribute('muted','');
+        if (current.class) video.className = current.class;
+        sceneContainer.appendChild(video);
+
+        const sceneIndexAtCreate = currentScene;
+        const advanceIfCurrent = () => { if (currentScene === sceneIndexAtCreate) advanceScene(); };
+        const tryPlay = () => video.play().catch(()=>{});
+        tryPlay();
+        video.addEventListener('canplay', tryPlay, { once: true });
+        video.addEventListener('loadeddata', tryPlay, { once: true });
+        video.addEventListener('loadedmetadata', tryPlay, { once: true });
+
+        if (current.autoAdvance) {
+          video.addEventListener('ended', advanceIfCurrent, { once: true });
+          const onTimeUpdate = () => {
+            if (video.duration && video.currentTime >= video.duration - 0.1) {
+              video.removeEventListener('timeupdate', onTimeUpdate);
+              advanceIfCurrent();
+            }
+          };
+          video.addEventListener('timeupdate', onTimeUpdate);
+        }
+
+      } else if (isScene3 && panForMobile) {
+        const stage = document.createElement('div'); stage.className = 'pan-stage';
+        const surface = document.createElement('div'); surface.className = 'pan-surface';
+        const img = document.createElement('img'); img.className = 'pan-img'; img.src = current.background; img.alt = '';
+        surface.appendChild(img);
+
+        const labels = current.labels || DEFAULT_LABELS;
+        current.hotspots = getHotspots();
+        (current.hotspots || []).forEach((hs, i) => {
+          const dot = document.createElement('div');
+          dot.className = 'hotspot';
+          dot.style.left = hs.x;
+          dot.style.top = hs.y;
+          dot.setAttribute('data-label', labels[i] || '');
+          dot.onclick = (ev) => { ev.stopPropagation(); handleHotspotClick(labels[i]); };
+          surface.appendChild(dot);
+        });
+
+        stage.appendChild(surface);
+        sceneContainer.appendChild(stage);
+        img.addEventListener('load', () => setupPanorama(stage, surface, img));
+      } else {
+        const img = document.createElement('div');
+        img.id = 'scene-image';
+        img.style.background = `url('${current.background}') center/cover no-repeat`;
+        if (rotateForMobile) img.className = 'scene3-mobile';
+        if (current.class) img.classList.add(current.class);
+        sceneContainer.appendChild(img);
+      }
+
+      if (current.hotspots && (!isScene3 || !panForMobile)) {
+        const labels = current.labels || DEFAULT_LABELS;
+        current.hotspots.forEach((hs, i) => {
+          const dot = document.createElement('div');
+          dot.className = 'hotspot';
+          if (rotateForMobile) dot.classList.add('mobile-scene3');
+          dot.style.left = hs.x;
+          dot.style.top = hs.y;
+          dot.setAttribute('data-label', labels[i] || '');
+          dot.onclick = () => handleHotspotClick(labels[i]);
+          sceneContainer.appendChild(dot);
+        });
+      }
+
+      document.getElementById('dialogue').textContent = current.text;
+    }
   </script>
 </body>
 </html>
