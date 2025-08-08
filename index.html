@@ -8,9 +8,14 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: black; font-family: 'Courier New', Courier, monospace; color: #ddd; }
-    #scene { position: absolute; width: 100vw; height: 100vh; z-index: 1; }
+    #scene { position: absolute; width: 100vw; height: 100vh; z-index: 1; overflow: hidden; }
     #scene video, #scene-image { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; pointer-events: none; }
     .darken { filter: brightness(0.55); }
+
+    /* panorama container */
+    .pan-stage { position: relative; width: 100%; height: 100%; overflow: hidden; touch-action: none; }
+    .pan-surface { position: absolute; top: 0; left: 0; will-change: transform; height: 100%; }
+    .pan-image { height: 100%; user-select: none; pointer-events: none; }
 
     .hotspot { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: #fff; opacity: 0.6; z-index: 3; pointer-events: auto; transition: opacity 0.2s ease; border: none; }
     .hotspot:hover { animation: pulse 800ms infinite alternate ease-in-out; opacity: 1; }
@@ -24,7 +29,7 @@
 
     #dialogue { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 1.2em; background: rgba(0,0,0,0.5); padding: 10px; z-index: 2; }
 
-    /* Lore video fullscreen modal */
+    /* Popup modal */
     #popup {
       position: fixed;
       inset: 0;
@@ -35,18 +40,21 @@
       z-index: 10;
       padding: 0;
     }
+
     #popup video {
       width: 100%;
       height: 100%;
       object-fit: contain;
-      box-shadow: none;
-      outline: none;
       background: black;
       transform: scale(0.98);
       opacity: 0;
       transition: transform .18s ease-out, opacity .18s ease-out;
     }
-    #popup.show video { transform: scale(1); opacity: 1; }
+
+    #popup.show video {
+      transform: scale(1);
+      opacity: 1;
+    }
 
     #closeBtn {
       position: absolute;
@@ -64,40 +72,9 @@
     }
     #closeBtn:hover { color: red; }
 
-    /* Scene 3 — mobile landscape rotation */
     @media (max-width: 768px) and (orientation: landscape) {
-      #scene-image.scene3-mobile {
-        background: url('scene3-vertical.png') center/contain no-repeat !important;
-        transform: rotate(90deg);
-        transform-origin: center center;
-      }
-      .hotspot.mobile-scene3 { transform: rotate(-90deg); }
-      #ui { top: auto; bottom: 20px; left: 20px; }
+      .hotspot.mobile-scene3:first-child { top: 35% !important; } /* lowered first hotspot */
     }
-
-    /* Scene 3 — mobile portrait panorama */
-    .pan-stage {
-      position: absolute;
-      inset: 0;
-      overflow: hidden;
-      touch-action: none; /* we fully manage horizontal touch */
-    }
-    .pan-surface {
-      position: absolute;
-      top: 0; left: 0;
-      height: 100%;
-      will-change: transform;
-    }
-    .pan-img {
-      position: absolute;
-      top: 0; left: 0;
-      height: 100%;
-      width: auto; /* width computed from natural aspect ratio */
-      user-select: none;
-      -webkit-user-drag: none;
-      pointer-events: none; /* hotspots get the taps */
-    }
-    .pan-surface .hotspot { pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -116,7 +93,7 @@
 
   <!-- Popup modal -->
   <div id="popup" onclick="closePopup(event)">
-    <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
+    <button id="closeBtn" onclick="closePopup(event)">✕</button>
     <video id="popupVideo" controls playsinline></video>
   </div>
 
@@ -136,35 +113,23 @@
       { background: 'scene3.png', type: 'image', class: '', text: 'Wake up, join the underground: 9Z4EZGiirqkjE2Mfnb4xmJebxxqZZugTwewVRfo8bonk', labels: DEFAULT_LABELS, hotspots: getHotspots() }
     ];
     let currentScene = 0;
-
-    // Lore audio snapshot
     let _audioWasPlaying = false;
 
-    // Panorama state (Scene 3 mobile PORTRAIT) — no tilt, just drag/swipe
-    let pan = {
-      active: false,
-      x: 0, startX: 0, dragging: false,
-      minX: 0, maxX: 0,
-      surfaceEl: null, stageEl: null, imgEl: null,
-      listeners: []
-    };
-
-    function isMobileLandscape() {
-      return window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
-    }
     function isMobilePortrait() {
       return window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches;
     }
+    function isMobileLandscape() {
+      return window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
+    }
 
-    // Mobile landscape: lower the leftmost hotspot so it doesn't hit the audio button
     function getHotspots() {
       if (isMobileLandscape()) {
         return [
-          { x: '60%', y: '18%' },
+          { x: '60%', y: '35%' }, // lowered to avoid audio btn
           { x: '74%', y: '20%' },
           { x: '98%', y: '40%' },
           { x: '44%', y: '40%' },
-          { x: '12%', y: '42%' } // moved lower
+          { x: '12%', y: '25%' }
         ];
       }
       return [
@@ -182,21 +147,44 @@
       updateScene();
     }
 
-    function updateScene() {
-      teardownPanorama();
+    const pan = { active: false, startX: 0, x: 0, minX: 0, maxX: 0, surfaceEl: null };
+    function applyPan() {
+      if (pan.surfaceEl) {
+        pan.surfaceEl.style.transform = `translateX(${pan.x}px)`;
+      }
+    }
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
+    function setupPanorama(stageEl, surfaceEl, imgEl) {
+      pan.active = true;
+      pan.surfaceEl = surfaceEl;
+
+      const stageW = stageEl.clientWidth;
+      const stageH = stageEl.clientHeight;
+      const ar = imgEl.naturalWidth / imgEl.naturalHeight;
+      const imgRenderW = Math.round(stageH * ar);
+
+      imgEl.style.width = imgRenderW + 'px';
+      surfaceEl.style.width = imgRenderW + 'px';
+
+      pan.maxX = 0;
+      pan.minX = Math.min(0, stageW - imgRenderW);
+      pan.x = Math.round((pan.minX + pan.maxX) / 2); // center default
+      applyPan();
+
+      surfaceEl.onpointerdown = e => { pan.startX = e.clientX - pan.x; surfaceEl.setPointerCapture(e.pointerId); };
+      surfaceEl.onpointermove = e => {
+        if (e.pressure !== 0) {
+          pan.x = clamp(e.clientX - pan.startX, pan.minX, pan.maxX);
+          applyPan();
+        }
+      };
+    }
+
+    function updateScene() {
       const sceneContainer = document.getElementById('scene');
       sceneContainer.innerHTML = '';
       const current = scenes[currentScene];
-
-      const isScene3 = current.background.includes('scene3');
-      const rotateForMobile = isScene3 && isMobileLandscape();
-      const panForMobile = isScene3 && isMobilePortrait();
-
-      if (rotateForMobile) {
-        current.hotspots = getHotspots();
-        current.class = (current.class + ' scene3-mobile').trim();
-      }
 
       if (current.type === 'video') {
         const video = document.createElement('video');
@@ -207,222 +195,101 @@
         video.playsInline = true;
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
-
-      } else if (current.type === 'image' && panForMobile) {
-        // Scene 3, Mobile PORTRAIT: true-width panorama (drag/swipe only)
-        const stage = document.createElement('div');
-        stage.className = 'pan-stage';
-
-        const surface = document.createElement('div');
-        surface.className = 'pan-surface';
-        stage.appendChild(surface);
-
-        const img = document.createElement('img');
-        img.className = 'pan-img';
-        img.src = current.background;
-        img.alt = '';
-        surface.appendChild(img);
-
-        const labels = current.labels || DEFAULT_LABELS;
-        current.hotspots = getHotspots();
-        if (current.hotspots) {
-          current.hotspots.forEach((hs, i) => {
-            const dot = document.createElement('div');
-            dot.className = 'hotspot';
-            dot.style.left = hs.x;
-            dot.style.top = hs.y;
-            dot.setAttribute('data-label', labels[i] || '');
-            dot.onclick = (ev) => { ev.stopPropagation(); handleHotspotClick(labels[i]); };
-            surface.appendChild(dot);
-          });
-        }
-
-        sceneContainer.appendChild(stage);
-        img.addEventListener('load', () => setupPanorama(stage, surface, img));
-
       } else if (current.type === 'image') {
-        // Default image render (desktop + mobile landscape)
-        const img = document.createElement('div');
-        img.id = 'scene-image';
-        img.style.background = `url('${current.background}') center/cover no-repeat`;
-        if (current.class) img.className = current.class;
-        sceneContainer.appendChild(img);
-
-        if (current.hotspots) {
-          const labels = current.labels || DEFAULT_LABELS;
-          current.hotspots.forEach((hs, i) => {
-            const dot = document.createElement('div');
-            dot.className = 'hotspot';
-            if (rotateForMobile) dot.classList.add('mobile-scene3');
-            dot.style.left = hs.x;
-            dot.style.top = hs.y;
-            dot.setAttribute('data-label', labels[i] || '');
-            dot.onclick = () => handleHotspotClick(labels[i]);
-            sceneContainer.appendChild(dot);
-          });
+        if (isMobilePortrait()) {
+          const stage = document.createElement('div');
+          stage.className = 'pan-stage';
+          const surface = document.createElement('div');
+          surface.className = 'pan-surface';
+          const img = document.createElement('img');
+          img.src = current.background;
+          img.className = 'pan-image';
+          img.onload = () => setupPanorama(stage, surface, img);
+          surface.appendChild(img);
+          stage.appendChild(surface);
+          sceneContainer.appendChild(stage);
+        } else {
+          const imgDiv = document.createElement('div');
+          imgDiv.id = 'scene-image';
+          imgDiv.style.background = `url('${current.background}') center/cover no-repeat`;
+          sceneContainer.appendChild(imgDiv);
         }
+      }
+
+      if (current.hotspots) {
+        const labels = current.labels || DEFAULT_LABELS;
+        current.hotspots.forEach((hs, i) => {
+          const dot = document.createElement('div');
+          dot.className = 'hotspot';
+          if (isMobileLandscape()) dot.classList.add('mobile-scene3');
+          dot.style.left = hs.x;
+          dot.style.top = hs.y;
+          dot.setAttribute('data-label', labels[i] || '');
+          dot.onclick = () => handleHotspotClick(labels[i]);
+          sceneContainer.appendChild(dot);
+        });
       }
 
       document.getElementById('dialogue').textContent = current.text;
     }
 
-    /* ========= Panorama (Scene 3 mobile PORTRAIT) — drag/swipe only ========= */
-    function setupPanorama(stageEl, surfaceEl, imgEl) {
-      pan.active = true;
-      pan.stageEl = stageEl;
-      pan.surfaceEl = surfaceEl;
-      pan.imgEl = imgEl;
-
-      const stageH = stageEl.clientHeight;
-      const stageW = stageEl.clientWidth;
-      const ar = imgEl.naturalWidth / imgEl.naturalHeight;
-      const imgRenderW = Math.round(stageH * ar);
-
-      imgEl.style.width = imgRenderW + 'px';
-      surfaceEl.style.width = imgRenderW + 'px';
-
-      // bounds: maxX = 0 (left edge), minX = stageW - imgW (negative right edge)
-      pan.maxX = 0;
-      pan.minX = Math.min(0, stageW - imgRenderW);
-
-      // start centered
-      pan.x = Math.round((pan.minX + pan.maxX) / 2);
-      applyPan();
-
-      // Drag handlers
-      const onPointerDown = (e) => {
-        pan.dragging = true;
-        const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
-        pan.startX = pageX - pan.x;
-      };
-      const onPointerMove = (e) => {
-        if (!pan.dragging) return;
-        const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
-        pan.x = clamp(pageX - pan.startX, pan.minX, pan.maxX);
-        applyPan();
-      };
-      const onPointerUp = () => { pan.dragging = false; };
-
-      stageEl.addEventListener('touchstart', onPointerDown, {passive:true});
-      stageEl.addEventListener('touchmove', onPointerMove, {passive:true});
-      stageEl.addEventListener('touchend', onPointerUp);
-      stageEl.addEventListener('mousedown', (e)=>{ e.preventDefault(); onPointerDown(e); });
-      window.addEventListener('mousemove', onPointerMove);
-      window.addEventListener('mouseup', onPointerUp);
-
-      pan.listeners = [
-        ['touchstart', onPointerDown, stageEl],
-        ['touchmove', onPointerMove, stageEl],
-        ['touchend', onPointerUp, stageEl],
-        ['mousedown', (e)=>{ e.preventDefault(); onPointerDown(e); }, stageEl],
-        ['mousemove', onPointerMove, window],
-        ['mouseup', onPointerUp, window],
-      ];
-    }
-
-    function teardownPanorama() {
-      if (!pan.active) return;
-      pan.listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn, true));
-      pan = {
-        active: false,
-        x: 0, startX: 0, dragging: false,
-        minX: 0, maxX: 0,
-        surfaceEl: null, stageEl: null, imgEl: null,
-        listeners: []
-      };
-    }
-
-    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-    function applyPan() { if (pan.surfaceEl) pan.surfaceEl.style.transform = `translate3d(${pan.x}px,0,0)`; }
-
-    /* ========= Lore audio behavior ========= */
     function restoreAudio() {
       const audio = document.getElementById('radio');
-      if (_audioWasPlaying) {
-        audio.play().catch(()=>{});
-      } else {
-        try { audio.pause(); } catch {}
-      }
+      if (_audioWasPlaying) audio.play().catch(()=>{});
+      else audio.pause();
     }
-
     function handleHotspotClick(label) {
       const link = HOTSPOT_LINKS[label];
       if (link === 'popup') {
         const popup = document.getElementById('popup');
         const video = document.getElementById('popupVideo');
         const audio = document.getElementById('radio');
-
         _audioWasPlaying = !audio.paused;
-        try { audio.pause(); } catch {}
-
+        audio.pause();
         video.src = 'lore.mp4';
         video.currentTime = 0;
-
         popup.style.display = 'flex';
-        requestAnimationFrame(() => {
-          popup.classList.add('show');
-          video.play().catch(()=>{});
-        });
-
+        requestAnimationFrame(() => { popup.classList.add('show'); video.play().catch(()=>{}); });
         video.onended = () => restoreAudio();
         video.onemptied = () => restoreAudio();
-      } else if (link) {
-        window.open(link, '_blank');
-      }
+      } else if (link) window.open(link, '_blank');
     }
-
     function closePopup(e) {
       const isBackdrop = e && e.currentTarget && e.target === e.currentTarget;
       const isCloseBtn = e && e.target && e.target.id === 'closeBtn';
       if (!isBackdrop && !isCloseBtn) return;
-
       const popup = document.getElementById('popup');
       const video = document.getElementById('popupVideo');
-
-      try { video.pause(); } catch {}
+      video.pause();
       popup.classList.remove('show');
       popup.style.display = 'none';
-
       video.removeAttribute('src');
       video.load();
       restoreAudio();
     }
-
     function toggleAudio() {
       const audio = document.getElementById('radio');
       if (audio.paused) { audio.currentTime = 0; audio.play(); } else { audio.pause(); }
     }
 
-    // Recompute scene 3 layout on size/orientation changes
     window.addEventListener('resize', () => {
       scenes[2].hotspots = getHotspots();
-      updateScene();
+      if (currentScene === 2) updateScene();
     });
-
     window.addEventListener('wheel', (event) => {
       if (event.deltaY < 0) advanceScene();
-      else if (event.deltaY > 0) {
-        currentScene--;
-        if (currentScene < 0) currentScene = scenes.length - 1;
-        updateScene();
-      }
+      else if (event.deltaY > 0) { currentScene--; if (currentScene < 0) currentScene = scenes.length - 1; updateScene(); }
     });
-
     window.onload = () => {
       updateScene();
       document.getElementById('radio').volume = 0.2;
-
-      // Optional: close on Escape
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           const popup = document.getElementById('popup');
-          if (popup.style.display === 'flex') {
-            closePopup({ currentTarget: popup, target: popup });
-          }
+          if (popup.style.display === 'flex') closePopup({ currentTarget: popup, target: popup });
         }
       });
     };
   </script>
 </body>
 </html>
-
