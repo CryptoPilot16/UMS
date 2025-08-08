@@ -22,7 +22,6 @@
     #popup { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 10; }
     #popup video { max-width: 90%; max-height: 90%; }
 
-    /* Mobile landscape handling for scene 3 */
     @media (max-width: 768px) and (orientation: landscape) {
       #scene-image.scene3-mobile {
         background: url('scene3-vertical.png') center/contain no-repeat !important;
@@ -61,15 +60,28 @@
     let scenes = [
       { background: 'scene1.mp4', type: 'video', class: 'darken', text: 'Get ready. You\'re entering the Underground Money Society.' },
       { background: 'scene2.mp4', type: 'video', class: 'darken', text: 'The hardest degens of the Solana trenches' },
-      { background: 'scene3.png', type: 'image', class: '', text: 'Join the Underground: 9Z4EZGiirqkjE2Mfnb4xmJebxxqZZugTwewVRfo8bonk', labels: DEFAULT_LABELS, hotspots: [
+      { background: 'scene3.png', type: 'image', class: '', text: 'Join the Underground: 9Z4EZGiirqkjE2Mfnb4xmJebxxqZZugTwewVRfo8bonk', labels: DEFAULT_LABELS, hotspots: getHotspots() }
+    ];
+    let currentScene = 0;
+
+    function getHotspots() {
+      if (window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+        return [
+          { x: '60%', y: '18%' },
+          { x: '74%', y: '20%' },
+          { x: '98%', y: '40%' },
+          { x: '44%', y: '40%' },
+          { x: '12%', y: '25%' }
+        ];
+      }
+      return [
         { x: '55%', y: '23%' },
         { x: '69%', y: '25%' },
         { x: '95%', y: '45%' },
         { x: '39%', y: '45%' },
         { x: '8%', y: '30%' }
-      ] }
-    ];
-    let currentScene = 0;
+      ];
+    }
 
     function advanceScene() {
       currentScene++;
@@ -81,6 +93,12 @@
       const sceneContainer = document.getElementById('scene');
       sceneContainer.innerHTML = '';
       const current = scenes[currentScene];
+
+      // Force vertical mode for scene 3 on mobile landscape
+      if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+        current.hotspots = getHotspots();
+        current.class = (current.class + ' scene3-mobile').trim();
+      }
 
       if (current.type === 'video') {
         const video = document.createElement('video');
@@ -96,9 +114,6 @@
         img.id = 'scene-image';
         img.style.background = `url('${current.background}') center/cover no-repeat`;
         if (current.class) img.className = current.class;
-        if (current.background.includes('scene3')) {
-          img.classList.add('scene3-mobile');
-        }
         sceneContainer.appendChild(img);
       }
 
@@ -107,7 +122,7 @@
         current.hotspots.forEach((hs, i) => {
           const dot = document.createElement('div');
           dot.className = 'hotspot';
-          if (current.background.includes('scene3')) {
+          if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
             dot.classList.add('mobile-scene3');
           }
           dot.style.left = hs.x;
@@ -143,6 +158,11 @@
       if (audio.paused) { audio.currentTime = 0; audio.play(); } else { audio.pause(); }
     }
 
+    window.addEventListener('resize', () => {
+      scenes[2].hotspots = getHotspots();
+      if (currentScene === 2) updateScene();
+    });
+
     window.addEventListener('wheel', (event) => {
       if (event.deltaY < 0) {
         advanceScene();
@@ -160,3 +180,5 @@
   </script>
 </body>
 </html>
+
+
