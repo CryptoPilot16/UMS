@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -9,19 +10,67 @@
     html, body { width: 100%; height: 100%; overflow: hidden; background: black; font-family: 'Courier New', Courier, monospace; color: #ddd; }
     #scene { position: absolute; width: 100vw; height: 100vh; z-index: 1; }
     #scene video, #scene-image { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; pointer-events: none; }
-    .darken { filter: brightness(0.4); }
+    .darken { filter: brightness(0.55); }
+
     .hotspot { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: #fff; opacity: 0.6; z-index: 3; pointer-events: auto; transition: opacity 0.2s ease; border: none; }
     .hotspot:hover { animation: pulse 800ms infinite alternate ease-in-out; opacity: 1; }
     @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(255,255,255,0.0); } to { box-shadow: 0 0 14px 2px rgba(255,255,255,0.9); } }
     .hotspot::after { content: attr(data-label); position: absolute; left: 50%; top: -10px; transform: translate(-50%, -100%) scale(1); white-space: nowrap; background: rgba(0,0,0,0.8); color: #e6ffe6; font-size: 12px; padding: 6px 8px; border-radius: 6px; opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
     .hotspot:hover::after { opacity: 1; transform: translate(-50%, -100%) scale(1.05); }
+
     #ui { position: absolute; top: 20px; left: 20px; z-index: 4; }
     .btn { padding: 8px 16px; font-size: 1em; background: rgba(255,255,255,0.1); border: 1px solid #888; color: white; cursor: pointer; margin: 6px; transition: 0.3s; }
     .btn:hover { background: rgba(255,255,255,0.3); }
-    #dialogue { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 1.2em; background: rgba(0,0,0,0.5); padding: 10px; z-index: 2; }
-    #popup { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 10; }
-    #popup video { max-width: 90%; max-height: 90%; }
 
+    #dialogue { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 1.2em; background: rgba(0,0,0,0.5); padding: 10px; z-index: 2; }
+
+    /* Popup modal (Lore video) */
+    #popup {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.95);
+      display: none;               /* toggled to flex when opened */
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      padding: 0;                  /* removed padding so video fills screen */
+    }
+
+    #popup video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;         /* change to 'cover' if you want fill/crop */
+      box-shadow: none;
+      outline: none;
+      background: black;
+      transform: scale(0.98);
+      opacity: 0;
+      transition: transform .18s ease-out, opacity .18s ease-out;
+    }
+
+    /* When showing, smoothly zoom in and fade in the video */
+    #popup.show video {
+      transform: scale(1);
+      opacity: 1;
+    }
+
+    #closeBtn {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-size: 28px;
+      font-weight: bold;
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      z-index: 11;
+      line-height: 1;
+      padding: 6px 8px;
+    }
+    #closeBtn:hover { color: red; }
+
+    /* Scene 3 — mobile landscape rotation */
     @media (max-width: 768px) and (orientation: landscape) {
       #scene-image.scene3-mobile {
         background: url('scene3-vertical.png') center/contain no-repeat !important;
@@ -37,17 +86,24 @@
 </head>
 <body>
   <div id="scene"></div>
+
   <div id="ui">
     <div style="display: flex; flex-direction: column; align-items: flex-start;">
       <button class="btn" onclick="advanceScene()">advance</button>
       <button class="btn" onclick="toggleAudio()">audio</button>
     </div>
   </div>
+
   <div id="dialogue">Private! Get ready. We're entering Sector 4.</div>
+
   <audio id="radio" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" autoplay loop></audio>
-  <div id="popup" onclick="closePopup()">
-    <video id="popupVideo" controls></video>
+
+  <!-- Popup modal -->
+  <div id="popup" onclick="closePopup(event)">
+    <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
+    <video id="popupVideo" controls playsinline></video>
   </div>
+
   <script>
     const DEFAULT_LABELS = ['Twitter','Chart','Telegram','Community','Lore'];
     const HOTSPOT_LINKS = {
@@ -57,29 +113,37 @@
       'Community': 'https://x.com/i/communities/1952904167753957408',
       'Lore': 'popup'
     };
+
     let scenes = [
       { background: 'scene1.mp4', type: 'video', class: 'darken', text: 'Get ready. You\'re entering the Underground Money Society.' },
       { background: 'scene2.mp4', type: 'video', class: 'darken', text: 'The hardest degens of the Solana trenches' },
-      { background: 'scene3.png', type: 'image', class: '', text: 'Join the Underground: 9Z4EZGiirqkjE2Mfnb4xmJebxxqZZugTwewVRfo8bonk', labels: DEFAULT_LABELS, hotspots: getHotspots() }
+      { background: 'scene3.png', type: 'image', class: '', text: 'Wake up, join the underground: 9Z4EZGiirqkjE2Mfnb4xmJebxxqZZugTwewVRfo8bonk', labels: DEFAULT_LABELS, hotspots: getHotspots() }
     ];
     let currentScene = 0;
 
+    // AUDIO STATE SNAPSHOT (so we can restore after Lore finishes/closes)
+    let _audioWasPlaying = false;
+
+    function isMobileLandscape() {
+      return window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
+    }
+
     function getHotspots() {
-      if (window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+      if (isMobileLandscape()) {
         return [
-          { x: '60%', y: '18%' },
-          { x: '74%', y: '20%' },
-          { x: '98%', y: '40%' },
-          { x: '44%', y: '40%' },
-          { x: '12%', y: '25%' }
+          { x: '60%', y: '18%' },  // screen 1
+          { x: '74%', y: '20%' },  // screen 2
+          { x: '98%', y: '40%' },  // far-right headphones
+          { x: '44%', y: '40%' },  // chair
+          { x: '12%', y: '25%' }   // coffee
         ];
       }
       return [
-        { x: '55%', y: '23%' },
-        { x: '69%', y: '25%' },
-        { x: '95%', y: '45%' },
-        { x: '39%', y: '45%' },
-        { x: '8%', y: '30%' }
+        { x: '55%', y: '23%' },    // screen 1
+        { x: '69%', y: '25%' },    // screen 2
+        { x: '95%', y: '45%' },    // far-right headphones
+        { x: '39%', y: '45%' },    // chair
+        { x: '8%',  y: '30%' }     // coffee
       ];
     }
 
@@ -94,8 +158,9 @@
       sceneContainer.innerHTML = '';
       const current = scenes[currentScene];
 
-      // Force vertical mode for scene 3 on mobile landscape
-      if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+      // If Scene 3 + mobile landscape, flag special class for rotated layout
+      const rotateForMobile = current.background.includes('scene3') && isMobileLandscape();
+      if (rotateForMobile) {
         current.hotspots = getHotspots();
         current.class = (current.class + ' scene3-mobile').trim();
       }
@@ -122,7 +187,7 @@
         current.hotspots.forEach((hs, i) => {
           const dot = document.createElement('div');
           dot.className = 'hotspot';
-          if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+          if (rotateForMobile) {
             dot.classList.add('mobile-scene3');
           }
           dot.style.left = hs.x;
@@ -136,21 +201,64 @@
       document.getElementById('dialogue').textContent = current.text;
     }
 
+    function restoreAudio() {
+      const audio = document.getElementById('radio');
+      // Resume only if it was playing before; otherwise keep it paused
+      if (_audioWasPlaying) {
+        audio.play().catch(()=>{});
+      } else {
+        try { audio.pause(); } catch {}
+      }
+    }
+
     function handleHotspotClick(label) {
       const link = HOTSPOT_LINKS[label];
       if (link === 'popup') {
-        document.getElementById('popupVideo').src = 'lore.mp4';
-        document.getElementById('popup').style.display = 'flex';
+        const popup = document.getElementById('popup');
+        const video = document.getElementById('popupVideo');
+        const audio = document.getElementById('radio');
+
+        // Snapshot current audio state, then PAUSE music during Lore
+        _audioWasPlaying = !audio.paused;
+        try { audio.pause(); } catch {}
+
+        // Set video source & show popup
+        video.src = 'lore.mp4';
+        video.currentTime = 0;
+
+        popup.style.display = 'flex';
+        requestAnimationFrame(() => {
+          popup.classList.add('show');
+          video.play().catch(()=>{ /* ignore autoplay block */ });
+        });
+
+        // When Lore ends/unloads, restore music to prior state
+        video.onended = () => restoreAudio();
+        video.onemptied = () => restoreAudio();
       } else if (link) {
         window.open(link, '_blank');
       }
     }
 
-    function closePopup() {
+    function closePopup(e) {
+      // Only close when clicking backdrop or the dedicated X button
+      const isBackdrop = e && e.currentTarget && e.target === e.currentTarget;
+      const isCloseBtn = e && e.target && e.target.id === 'closeBtn';
+      if (!isBackdrop && !isCloseBtn) return;
+
       const popup = document.getElementById('popup');
       const video = document.getElementById('popupVideo');
-      video.pause();
+
+      try { video.pause(); } catch {}
+      popup.classList.remove('show');
       popup.style.display = 'none';
+
+      // Remove source to free memory (triggers onemptied → restoreAudio)
+      video.removeAttribute('src');
+      video.load();
+
+      // Safety: if the empties event misses for any reason, restore now.
+      restoreAudio();
     }
 
     function toggleAudio() {
@@ -159,8 +267,9 @@
     }
 
     window.addEventListener('resize', () => {
+      // Recompute hotspot layout + rotation on orientation/size changes
       scenes[2].hotspots = getHotspots();
-      if (currentScene === 2) updateScene();
+      updateScene();
     });
 
     window.addEventListener('wheel', (event) => {
@@ -176,9 +285,20 @@
     window.onload = () => {
       updateScene();
       document.getElementById('radio').volume = 0.2;
+
+      // Optional: close on Escape
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const popup = document.getElementById('popup');
+          if (popup.style.display === 'flex') {
+            closePopup({ currentTarget: popup, target: popup });
+          }
+        }
+      });
     };
   </script>
 </body>
 </html>
+
 
 
