@@ -24,22 +24,21 @@
 
     #dialogue { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 1.2em; background: rgba(0,0,0,0.5); padding: 10px; z-index: 2; }
 
-    /* Popup modal (Lore video) */
+    /* Lore video fullscreen modal */
     #popup {
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,0.95);
-      display: none;               /* toggled to flex when opened */
+      display: none;
       align-items: center;
       justify-content: center;
       z-index: 10;
-      padding: 0;                  /* removed padding so video fills screen */
+      padding: 0;
     }
-
     #popup video {
       width: 100%;
       height: 100%;
-      object-fit: contain;         /* change to 'cover' if you want fill/crop */
+      object-fit: contain;  /* change to 'cover' if you prefer cinematic fill */
       box-shadow: none;
       outline: none;
       background: black;
@@ -47,12 +46,7 @@
       opacity: 0;
       transition: transform .18s ease-out, opacity .18s ease-out;
     }
-
-    /* When showing, smoothly zoom in and fade in the video */
-    #popup.show video {
-      transform: scale(1);
-      opacity: 1;
-    }
+    #popup.show video { transform: scale(1); opacity: 1; }
 
     #closeBtn {
       position: absolute;
@@ -83,30 +77,28 @@
       #ui { top: auto; bottom: 20px; left: 20px; }
     }
 
-    /* Scene 3 — mobile portrait panorama stage */
+    /* Scene 3 — mobile portrait panorama */
     .pan-stage {
       position: absolute;
       inset: 0;
-      overflow: hidden;          /* we handle panning via transform */
-      touch-action: pan-y;       /* allow vertical gestures to scroll page if needed, we handle x */
+      overflow: hidden;         /* no native scroll; we pan via transform */
+      touch-action: none;       /* we fully manage horizontal touch */
     }
     .pan-surface {
       position: absolute;
       top: 0; left: 0;
       height: 100%;
-      width: 200vw;              /* 2x viewport width to allow sliding; tweak as needed */
       will-change: transform;
     }
-    .pan-surface #scene-image {
+    .pan-img {
       position: absolute;
       top: 0; left: 0;
-      width: 100%;               /* matches surface width */
       height: 100%;
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
+      width: auto;              /* width computed from natural aspect ratio */
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none;     /* hotspots receive the taps */
     }
-    /* Hotspots inside pan-surface move with the image */
     .pan-surface .hotspot { pointer-events: auto; }
   </style>
 </head>
@@ -150,14 +142,14 @@
     // AUDIO STATE SNAPSHOT (so we can restore after Lore finishes/closes)
     let _audioWasPlaying = false;
 
-    // Panorama state (for Scene 3 mobile portrait)
-    const PAN_SCALE = 2; // 2x viewport width
+    // Panorama state (Scene 3 mobile PORTRAIT)
     let pan = {
       active: false,
       x: 0, startX: 0, dragging: false,
       minX: 0, maxX: 0,
-      surfaceEl: null, stageEl: null,
-      tiltEnabled: false, tiltRAF: null, tiltTargetX: 0
+      surfaceEl: null, stageEl: null, imgEl: null,
+      tiltEnabled: false, tiltRAF: null, tiltTargetX: 0,
+      listeners: []
     };
 
     function isMobileLandscape() {
@@ -170,19 +162,19 @@
     function getHotspots() {
       if (isMobileLandscape()) {
         return [
-          { x: '60%', y: '18%' },  // screen 1
-          { x: '74%', y: '20%' },  // screen 2
-          { x: '98%', y: '40%' },  // far-right headphones
-          { x: '44%', y: '40%' },  // chair
-          { x: '12%', y: '25%' }   // coffee
+          { x: '60%', y: '18%' },
+          { x: '74%', y: '20%' },
+          { x: '98%', y: '40%' },
+          { x: '44%', y: '40%' },
+          { x: '12%', y: '25%' }
         ];
       }
       return [
-        { x: '55%', y: '23%' },    // screen 1
-        { x: '69%', y: '25%' },    // screen 2
-        { x: '95%', y: '45%' },    // far-right headphones
-        { x: '39%', y: '45%' },    // chair
-        { x: '8%',  y: '30%' }     // coffee
+        { x: '55%', y: '23%' },
+        { x: '69%', y: '25%' },
+        { x: '95%', y: '45%' },
+        { x: '39%', y: '45%' },
+        { x: '8%',  y: '30%' }
       ];
     }
 
@@ -193,7 +185,7 @@
     }
 
     function updateScene() {
-      teardownPanorama(); // in case we were in Scene 3 portrait previously
+      teardownPanorama();
 
       const sceneContainer = document.getElementById('scene');
       sceneContainer.innerHTML = '';
@@ -208,7 +200,7 @@
         current.class = (current.class + ' scene3-mobile').trim();
       }
 
-      // RENDER: Scene types
+      // Render
       if (current.type === 'video') {
         const video = document.createElement('video');
         video.src = current.background;
@@ -218,20 +210,24 @@
         video.playsInline = true;
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
+
       } else if (current.type === 'image' && panForMobile) {
-        // === Scene 3, Mobile PORTRAIT: Panorama mode (drag + tilt) ===
+        // === Scene 3, Mobile PORTRAIT: true-width panorama ===
         const stage = document.createElement('div');
         stage.className = 'pan-stage';
+
         const surface = document.createElement('div');
         surface.className = 'pan-surface';
         stage.appendChild(surface);
 
-        const img = document.createElement('div');
-        img.id = 'scene-image';
-        img.style.background = `url('${current.background}') center/cover no-repeat`;
+        // Real <img> sized by height so width is accurate
+        const img = document.createElement('img');
+        img.className = 'pan-img';
+        img.src = current.background;
+        img.alt = '';
         surface.appendChild(img);
 
-        // Hotspots inside surface (move with image)
+        // Add hotspots INSIDE surface so they move with image
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots = getHotspots();
         if (current.hotspots) {
@@ -248,26 +244,25 @@
 
         sceneContainer.appendChild(stage);
 
-        // Setup panorama dragging + tilt
-        setupPanorama(stage, surface);
+        img.addEventListener('load', () => {
+          setupPanorama(stage, surface, img);
+        });
 
       } else if (current.type === 'image') {
-        // Default image render (desktop + mobile landscape)
+        // Default image render
         const img = document.createElement('div');
         img.id = 'scene-image';
         img.style.background = `url('${current.background}') center/cover no-repeat`;
         if (current.class) img.className = current.class;
         sceneContainer.appendChild(img);
 
-        // Hotspots on top of image
+        // Hotspots on top
         if (current.hotspots) {
           const labels = current.labels || DEFAULT_LABELS;
           current.hotspots.forEach((hs, i) => {
             const dot = document.createElement('div');
             dot.className = 'hotspot';
-            if (rotateForMobile) {
-              dot.classList.add('mobile-scene3');
-            }
+            if (rotateForMobile) dot.classList.add('mobile-scene3');
             dot.style.left = hs.x;
             dot.style.top = hs.y;
             dot.setAttribute('data-label', labels[i] || '');
@@ -281,69 +276,81 @@
     }
 
     // === Panorama (Scene 3 mobile PORTRAIT) ===
-    function setupPanorama(stageEl, surfaceEl) {
+    function setupPanorama(stageEl, surfaceEl, imgEl) {
       pan.active = true;
       pan.stageEl = stageEl;
       pan.surfaceEl = surfaceEl;
-      pan.x = 0;
-      const stageW = pan.stageEl.clientWidth;
-      const surfaceW = stageW * PAN_SCALE; // because .pan-surface is 200vw
+      pan.imgEl = imgEl;
+
+      // Calculate the rendered image width at full height
+      const stageH = stageEl.clientHeight;
+      const stageW = stageEl.clientWidth;
+
+      // natural aspect ratio
+      const ar = imgEl.naturalWidth / imgEl.naturalHeight;
+      const imgRenderW = Math.round(stageH * ar); // height locked to viewport
+
+      imgEl.style.width = imgRenderW + 'px';
+      surfaceEl.style.width = imgRenderW + 'px';
+
+      // Bounds: can pan from 0 (left edge) to -(imgW - stageW) (right edge)
       pan.maxX = 0;
-      pan.minX = -(surfaceW - stageW);
+      pan.minX = Math.min(0, stageW - imgRenderW); // negative (or 0 if image narrower)
+      pan.x = clamp(pan.x, pan.minX, pan.maxX);
       applyPan();
 
-      // Touch/drag
-      const onTouchStart = (e) => {
+      // Drag handlers
+      const onPointerDown = (e) => {
         pan.dragging = true;
         const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
         pan.startX = pageX - pan.x;
-        // Attempt to enable tilt on first interaction (iOS permission)
-        maybeEnableTilt();
+        maybeEnableTilt(); // request tilt permission on first interaction (iOS)
       };
-      const onTouchMove = (e) => {
+      const onPointerMove = (e) => {
         if (!pan.dragging) return;
         const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
         pan.x = clamp(pageX - pan.startX, pan.minX, pan.maxX);
         applyPan();
       };
-      const endDrag = () => { pan.dragging = false; };
+      const onPointerUp = () => { pan.dragging = false; };
 
-      stageEl.addEventListener('touchstart', onTouchStart, {passive:true});
-      stageEl.addEventListener('touchmove', onTouchMove, {passive:true});
-      stageEl.addEventListener('touchend', endDrag);
-      stageEl.addEventListener('mousedown', (e)=>{ e.preventDefault(); onTouchStart(e); });
-      window.addEventListener('mousemove', onTouchMove);
-      window.addEventListener('mouseup', endDrag);
+      stageEl.addEventListener('touchstart', onPointerDown, {passive:true});
+      stageEl.addEventListener('touchmove', onPointerMove, {passive:true});
+      stageEl.addEventListener('touchend', onPointerUp);
+      stageEl.addEventListener('mousedown', (e)=>{ e.preventDefault(); onPointerDown(e); });
+      window.addEventListener('mousemove', onPointerMove);
+      window.addEventListener('mouseup', onPointerUp);
 
-      // Save listeners for teardown
-      pan._listeners = [
-        ['touchstart', onTouchStart, stageEl],
-        ['touchmove', onTouchMove, stageEl],
-        ['touchend', endDrag, stageEl],
-        ['mousedown', (e)=>{ e.preventDefault(); onTouchStart(e); }, stageEl],
-        ['mousemove', onTouchMove, window],
-        ['mouseup', endDrag, window],
+      pan.listeners = [
+        ['touchstart', onPointerDown, stageEl],
+        ['touchmove', onPointerMove, stageEl],
+        ['touchend', onPointerUp, stageEl],
+        ['mousedown', (e)=>{ e.preventDefault(); onPointerDown(e); }, stageEl],
+        ['mousemove', onPointerMove, window],
+        ['mouseup', onPointerUp, window],
       ];
 
-      // Tilt
+      // Device tilt
+      startTilt();
       window.addEventListener('deviceorientation', handleTilt, true);
-      pan._listeners.push(['deviceorientation', handleTilt, window]);
-      startTiltRAF();
+      window.addEventListener('deviceorientationabsolute', handleTilt, true);
+      pan.listeners.push(['deviceorientation', handleTilt, window]);
+      pan.listeners.push(['deviceorientationabsolute', handleTilt, window]);
     }
 
     function teardownPanorama() {
       if (!pan.active) return;
-      // Remove listeners
-      if (pan._listeners) {
-        pan._listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn));
-      }
+      pan.listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn, true));
       window.removeEventListener('deviceorientation', handleTilt, true);
+      window.removeEventListener('deviceorientationabsolute', handleTilt, true);
       cancelAnimationFrame(pan.tiltRAF);
-      // Reset state
       pan = {
-        active: false, x: 0, startX: 0, dragging: false,
-        minX: 0, maxX: 0, surfaceEl: null, stageEl: null,
-        tiltEnabled: false, tiltRAF: null, tiltTargetX: 0
+        active: false,
+        x: 0, startX: 0, dragging: false,
+        minX: 0, maxX: 0,
+        surfaceEl: null, stageEl: null, imgEl: null,
+        tiltEnabled: false, tiltRAF: null, tiltTargetX: 0,
+        listeners: []
       };
     }
 
@@ -357,40 +364,51 @@
     // Tilt support
     function maybeEnableTilt() {
       if (pan.tiltEnabled) return;
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // iOS requires a user gesture to request permission
+      // iOS 13+ needs permission + HTTPS
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
         DeviceOrientationEvent.requestPermission().then((res) => {
           if (res === 'granted') pan.tiltEnabled = true;
-        }).catch(()=>{ /* ignore */ });
+        }).catch(()=>{ /* user denied or not secure origin */ });
       } else {
-        // Android/others usually allow without prompt
+        // Android & older iOS usually OK
         pan.tiltEnabled = true;
       }
     }
 
-    function handleTilt(e) {
-      if (!pan.active || !pan.tiltEnabled || pan.dragging) return;
-      // gamma: left-right tilt, typically -90..90
-      const gamma = e.gamma;
-      if (gamma == null) return;
-      // Map gamma (-45..45) to pan range (minX..maxX)
-      const clamped = Math.max(-45, Math.min(45, gamma));
-      const t = (clamped + 45) / 90; // 0..1
-      const target = pan.minX + (pan.maxX - pan.minX) * t;
-      pan.tiltTargetX = target;
-    }
-
-    function startTiltRAF() {
+    function startTilt() {
+      // Smooth follow loop
       const tick = () => {
         if (pan.active && pan.tiltEnabled && !pan.dragging) {
-          // Smoothly approach tilt target
-          pan.x += (pan.tiltTargetX - pan.x) * 0.08;
+          // ease towards target
+          pan.x += (pan.tiltTargetX - pan.x) * 0.12; // smoothing
           pan.x = clamp(pan.x, pan.minX, pan.maxX);
           applyPan();
         }
         pan.tiltRAF = requestAnimationFrame(tick);
       };
       pan.tiltRAF = requestAnimationFrame(tick);
+    }
+
+    function handleTilt(e) {
+      if (!pan.active || !pan.tiltEnabled || pan.dragging) return;
+
+      // Use gamma (left/right tilt) in portrait, fall back to beta if needed
+      let gamma = (typeof e.gamma === 'number') ? e.gamma : null;
+      if (gamma == null && typeof e.beta === 'number') {
+        // Some devices swap
+        gamma = e.beta;
+      }
+      if (gamma == null) return;
+
+      // Map tilt range to pan range. Use a generous range so it feels responsive.
+      // Typical gamma range is about -45..45 in portrait.
+      const RANGE = 60; // degrees to span full pan
+      const g = Math.max(-RANGE, Math.min(RANGE, gamma));
+      const t = (g + RANGE) / (2 * RANGE); // 0..1
+      const target = pan.minX + (pan.maxX - pan.minX) * t;
+
+      pan.tiltTargetX = target;
     }
 
     // ===== Audio restore logic for Lore (unchanged) =====
@@ -410,21 +428,18 @@
         const video = document.getElementById('popupVideo');
         const audio = document.getElementById('radio');
 
-        // Snapshot current audio state, then PAUSE music during Lore
         _audioWasPlaying = !audio.paused;
         try { audio.pause(); } catch {}
 
-        // Set video source & show popup
         video.src = 'lore.mp4';
         video.currentTime = 0;
 
         popup.style.display = 'flex';
         requestAnimationFrame(() => {
           popup.classList.add('show');
-          video.play().catch(()=>{ /* ignore autoplay block */ });
+          video.play().catch(()=>{});
         });
 
-        // When Lore ends/unloads, restore music to prior state
         video.onended = () => restoreAudio();
         video.onemptied = () => restoreAudio();
       } else if (link) {
@@ -433,7 +448,6 @@
     }
 
     function closePopup(e) {
-      // Only close when clicking backdrop or the dedicated X button
       const isBackdrop = e && e.currentTarget && e.target === e.currentTarget;
       const isCloseBtn = e && e.target && e.target.id === 'closeBtn';
       if (!isBackdrop && !isCloseBtn) return;
@@ -445,11 +459,8 @@
       popup.classList.remove('show');
       popup.style.display = 'none';
 
-      // Remove source to free memory (triggers onemptied → restoreAudio)
       video.removeAttribute('src');
       video.load();
-
-      // Safety: if the empties event misses for any reason, restore now.
       restoreAudio();
     }
 
@@ -491,4 +502,3 @@
   </script>
 </body>
 </html>
-
