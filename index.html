@@ -140,13 +140,12 @@
     // Lore audio snapshot
     let _audioWasPlaying = false;
 
-    // Panorama state (Scene 3 mobile PORTRAIT)
+    // Panorama state (Scene 3 mobile PORTRAIT) — no tilt, just drag/swipe
     let pan = {
       active: false,
       x: 0, startX: 0, dragging: false,
       minX: 0, maxX: 0,
       surfaceEl: null, stageEl: null, imgEl: null,
-      tiltEnabled: false, tiltRAF: null, tiltTargetX: 0,
       listeners: []
     };
 
@@ -210,7 +209,7 @@
         sceneContainer.appendChild(video);
 
       } else if (current.type === 'image' && panForMobile) {
-        // Scene 3, Mobile PORTRAIT: true-width panorama (drag + tilt)
+        // Scene 3, Mobile PORTRAIT: true-width panorama (drag/swipe only)
         const stage = document.createElement('div');
         stage.className = 'pan-stage';
 
@@ -267,7 +266,7 @@
       document.getElementById('dialogue').textContent = current.text;
     }
 
-    /* ========= Panorama (Scene 3 mobile PORTRAIT) ========= */
+    /* ========= Panorama (Scene 3 mobile PORTRAIT) — drag/swipe only ========= */
     function setupPanorama(stageEl, surfaceEl, imgEl) {
       pan.active = true;
       pan.stageEl = stageEl;
@@ -286,9 +285,8 @@
       pan.maxX = 0;
       pan.minX = Math.min(0, stageW - imgRenderW);
 
-      // ✅ start centered
+      // start centered
       pan.x = Math.round((pan.minX + pan.maxX) / 2);
-      pan.tiltTargetX = pan.x; // keep tilt loop aligned initially
       applyPan();
 
       // Drag handlers
@@ -296,7 +294,6 @@
         pan.dragging = true;
         const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
         pan.startX = pageX - pan.x;
-        maybeEnableTilt(); // request tilt permission (iOS)
       };
       const onPointerMove = (e) => {
         if (!pan.dragging) return;
@@ -321,73 +318,22 @@
         ['mousemove', onPointerMove, window],
         ['mouseup', onPointerUp, window],
       ];
-
-      // Tilt listeners + RAF loop
-      startTiltRAF();
-      window.addEventListener('deviceorientation', handleTilt, true);
-      window.addEventListener('deviceorientationabsolute', handleTilt, true);
-      pan.listeners.push(['deviceorientation', handleTilt, window]);
-      pan.listeners.push(['deviceorientationabsolute', handleTilt, window]);
     }
 
     function teardownPanorama() {
       if (!pan.active) return;
       pan.listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn, true));
-      window.removeEventListener('deviceorientation', handleTilt, true);
-      window.removeEventListener('deviceorientationabsolute', handleTilt, true);
-      cancelAnimationFrame(pan.tiltRAF);
       pan = {
         active: false,
         x: 0, startX: 0, dragging: false,
         minX: 0, maxX: 0,
         surfaceEl: null, stageEl: null, imgEl: null,
-        tiltEnabled: false, tiltRAF: null, tiltTargetX: 0,
         listeners: []
       };
     }
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function applyPan() { if (pan.surfaceEl) pan.surfaceEl.style.transform = `translate3d(${pan.x}px,0,0)`; }
-
-    // ---- Tilt support ----
-    function maybeEnableTilt() {
-      if (pan.tiltEnabled) return;
-      // iOS 13+ requires permission AND a secure origin (https)
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-          .then(res => { if (res === 'granted') pan.tiltEnabled = true; })
-          .catch(()=>{ /* user denied or not https */ });
-      } else {
-        pan.tiltEnabled = true; // Android/older iOS
-      }
-    }
-
-    function handleTilt(e) {
-      if (!pan.active || !pan.tiltEnabled || pan.dragging) return;
-      // Prefer gamma (left/right). Fallback to beta on some devices.
-      let gamma = (typeof e.gamma === 'number') ? e.gamma : null;
-      if (gamma == null && typeof e.beta === 'number') gamma = e.beta;
-      if (gamma == null) return;
-
-      // Map tilt to pan range
-      const RANGE = 60; // degrees -> full travel
-      const g = Math.max(-RANGE, Math.min(RANGE, gamma));
-      const t = (g + RANGE) / (2 * RANGE); // 0..1
-      pan.tiltTargetX = pan.minX + (pan.maxX - pan.minX) * t;
-    }
-
-    function startTiltRAF() {
-      const tick = () => {
-        if (pan.active && pan.tiltEnabled && !pan.dragging) {
-          pan.x += (pan.tiltTargetX - pan.x) * 0.12; // smoothing
-          pan.x = clamp(pan.x, pan.minX, pan.maxX);
-          applyPan();
-        }
-        pan.tiltRAF = requestAnimationFrame(tick);
-      };
-      pan.tiltRAF = requestAnimationFrame(tick);
-    }
 
     /* ========= Lore audio behavior ========= */
     function restoreAudio() {
@@ -479,3 +425,4 @@
   </script>
 </body>
 </html>
+
