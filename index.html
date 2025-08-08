@@ -26,40 +26,10 @@
     #dialogue { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 1.2em; background: rgba(0,0,0,0.5); padding: 10px; z-index: 2; }
 
     /* Popup modal */
-    #popup {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.95);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 10;
-    }
-
-    #popup video {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      outline: none;
-      background: black;
-      transform: scale(0.98);
-      opacity: 0;
-      transition: transform .18s ease-out, opacity .18s ease-out;
-    }
+    #popup { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; align-items: center; justify-content: center; z-index: 10; }
+    #popup video { width: 100%; height: 100%; object-fit: contain; outline: none; background: black; transform: scale(0.98); opacity: 0; transition: transform .18s ease-out, opacity .18s ease-out; }
     #popup.show video { transform: scale(1); opacity: 1; }
-
-    #closeBtn {
-      position: absolute;
-      top: 10px;
-      right: 15px;
-      font-size: 28px;
-      font-weight: bold;
-      background: transparent;
-      border: none;
-      color: white;
-      cursor: pointer;
-      z-index: 11;
-    }
+    #closeBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
     #closeBtn:hover { color: red; }
 
     /* Mobile landscape Scene 3 rotation */
@@ -107,7 +77,7 @@
     ];
     let currentScene = 0;
     let _audioWasPlaying = false;
-    let scene3ScrollX = 55; // start centered %
+    let scene3ScrollX = 55; // centered start (%)
 
     function getHotspots() {
       if (window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
@@ -129,7 +99,7 @@
     }
 
     function advanceScene() {
-      if (currentScene === 2) return; // lock on last
+      if (currentScene === 2) return; // lock at last scene
       currentScene++;
       updateScene();
     }
@@ -140,9 +110,9 @@
       const current = scenes[currentScene];
 
       const advanceBtn = document.getElementById('advanceBtn');
-      if (currentScene === 2) advanceBtn.classList.add('disabled');
-      else advanceBtn.classList.remove('disabled');
+      if (currentScene === 2) advanceBtn.classList.add('disabled'); else advanceBtn.classList.remove('disabled');
 
+      // Scene 3 mobile portrait: swipeable centered image
       if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches) {
         const img = document.createElement('img');
         img.id = 'scene-image';
@@ -164,26 +134,53 @@
         };
       }
       else if (current.type === 'video') {
+        // --- Robust mobile auto-advance setup ---
         const video = document.createElement('video');
         video.src = current.background;
         video.autoplay = true;
-        video.loop = false;
-        video.muted = true;
+        video.loop = false;               // play once
+        video.muted = true;               // allow autoplay on mobile
         video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.setAttribute('muted', '');
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
 
-        if (current.autoAdvance) {
-          video.onended = () => { advanceScene(); };
-        }
-      } else {
+        const sceneIndexAtCreate = currentScene;
+        const advanceIfCurrent = () => { if (currentScene === sceneIndexAtCreate) advanceScene(); };
+
+        // Try to force playback start (some mobiles ignore autoplay without this)
+        const tryPlay = () => video.play().catch(() => {});
+        requestAnimationFrame(tryPlay);
+        video.addEventListener('canplay', tryPlay, { once: true });
+        video.addEventListener('loadeddata', tryPlay, { once: true });
+        video.addEventListener('loadedmetadata', tryPlay, { once: true });
+
+        // Primary: ended
+        video.addEventListener('ended', advanceIfCurrent, { once: true });
+
+        // Fallback: detect near-end via timeupdate (covers some iOS cases)
+        const onTimeUpdate = () => {
+          if (video.duration && video.currentTime >= video.duration - 0.1) {
+            video.removeEventListener('timeupdate', onTimeUpdate);
+            advanceIfCurrent();
+          }
+        };
+        video.addEventListener('timeupdate', onTimeUpdate);
+      }
+      else {
+        // Desktop + mobile landscape normal image
         const img = document.createElement('div');
         img.id = 'scene-image';
         img.style.background = `url('${current.background}') center/cover no-repeat`;
-        if (current.class) img.className = current.class;
+        if (current.background.includes('scene3') && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches) {
+          img.className = 'scene3-mobile';
+        }
         sceneContainer.appendChild(img);
       }
 
+      // Hotspots
       if (current.hotspots) {
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots.forEach((hs, i) => {
@@ -250,10 +247,15 @@
       if (currentScene === 2) updateScene();
     });
 
+    // Block wheel on Scene 3 (end)
     window.addEventListener('wheel', (event) => {
-      if (currentScene === 2) return; // lock scroll
+      if (currentScene === 2) return;
       if (event.deltaY < 0) advanceScene();
-      else if (event.deltaY > 0) { currentScene--; if (currentScene < 0) currentScene = scenes.length - 1; updateScene(); }
+      else if (event.deltaY > 0) {
+        currentScene--;
+        if (currentScene < 0) currentScene = 0;
+        updateScene();
+      }
     });
 
     window.onload = () => {
@@ -269,5 +271,3 @@
   </script>
 </body>
 </html>
-
-
