@@ -282,11 +282,13 @@
       imgEl.style.width = imgRenderW + 'px';
       surfaceEl.style.width = imgRenderW + 'px';
 
+      // bounds: maxX = 0 (left edge), minX = stageW - imgW (negative right edge)
       pan.maxX = 0;
       pan.minX = Math.min(0, stageW - imgRenderW);
 
-      // Default start at x = 55px (clamped to bounds)
-      pan.x = clamp(55, pan.minX, pan.maxX);
+      // ✅ start centered
+      pan.x = Math.round((pan.minX + pan.maxX) / 2);
+      pan.tiltTargetX = pan.x; // keep tilt loop aligned initially
       applyPan();
 
       // Drag handlers
@@ -294,7 +296,7 @@
         pan.dragging = true;
         const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
         pan.startX = pageX - pan.x;
-        maybeEnableTilt(); // request tilt permission on first interaction (iOS)
+        maybeEnableTilt(); // request tilt permission (iOS)
       };
       const onPointerMove = (e) => {
         if (!pan.dragging) return;
@@ -368,7 +370,7 @@
       if (gamma == null && typeof e.beta === 'number') gamma = e.beta;
       if (gamma == null) return;
 
-      // Map tilt to pan range. Wider RANGE = more responsive.
+      // Map tilt to pan range
       const RANGE = 60; // degrees -> full travel
       const g = Math.max(-RANGE, Math.min(RANGE, gamma));
       const t = (g + RANGE) / (2 * RANGE); // 0..1
@@ -378,8 +380,7 @@
     function startTiltRAF() {
       const tick = () => {
         if (pan.active && pan.tiltEnabled && !pan.dragging) {
-          // Smoothly approach target
-          pan.x += (pan.tiltTargetX - pan.x) * 0.12;
+          pan.x += (pan.tiltTargetX - pan.x) * 0.12; // smoothing
           pan.x = clamp(pan.x, pan.minX, pan.maxX);
           applyPan();
         }
@@ -478,4 +479,3 @@
   </script>
 </body>
 </html>
-
