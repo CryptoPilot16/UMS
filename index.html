@@ -38,6 +38,17 @@
     #closeBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
     #closeBtn:hover { color: red; }
 
+    /* Memes Library modal (image grid) */
+    #libraryPopup { position: fixed; inset: 0; background: rgba(0,0,0,0.96); display: none; z-index: 10; }
+    #libraryPopup.show { display: block; }
+    #libCloseBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
+    #libCloseBtn:hover { color: red; }
+    .library-header { position: absolute; top: 12px; left: 16px; right: 60px; color: #d8ffd8; font-size: 14px; opacity: 0.9; }
+    .library-grid { position: absolute; top: 48px; bottom: 0; left: 0; right: 0; overflow: auto; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+    .library-item { background: #0e0e0e; border: 1px solid #333; border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; }
+    .library-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; user-select: none; -webkit-user-drag: none; }
+    .library-empty { color: #aaa; text-align: center; grid-column: 1/-1; padding: 40px 0; }
+
     /* Phone landscape (height-based so iPhone landscape matches) */
     @media (orientation: landscape) and (max-height: 500px) {
       #scene-image.scene3-mobile {
@@ -57,7 +68,7 @@
     .pan-img { position: absolute; top: 0; left: 0; height: 100%; width: auto; user-select: none; -webkit-user-drag: none; pointer-events: none; }
     .pan-surface .hotspot { pointer-events: auto; }
 
-    /* Tap-to-Play overlay (only shown if mobile blocks autoplay) */
+    /* Tap-to-Play overlay */
     #tapToPlay { display:none; position:absolute; inset:0; align-items:center; justify-content:center; z-index:12; background:rgba(0,0,0,0.45); }
     #tapToPlay button { font-size:18px; padding:12px 18px; border-radius:8px; border:1px solid #fff; background:rgba(255,255,255,0.12); color:#fff; }
   </style>
@@ -76,26 +87,34 @@
 
   <audio id="radio" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" autoplay loop></audio>
 
-  <!-- Popup modal -->
+  <!-- Popup modal (Lore video) -->
   <div id="popup" onclick="closePopup(event)">
     <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
     <video id="popupVideo" controls playsinline webkit-playsinline preload="auto" crossorigin="anonymous"></video>
     <div id="tapToPlay"><button>Tap to Play ▶</button></div>
   </div>
 
+  <!-- Memes Library Popup (Image Gallery) -->
+  <div id="libraryPopup">
+    <button id="libCloseBtn" onclick="closeLibrary(event)" aria-label="Close Memes Library">✕</button>
+    <div class="library-header">Memes Library — managed by <code>MemesLibrary/manifest.json</code></div>
+    <div id="libraryGrid" class="library-grid"></div>
+  </div>
+
   <script>
-    /* === Hotspot links === */
-    const DEFAULT_LABELS = ['Twitter','Chart','Telegram','Community','Lore'];
+    /* === Hotspot labels & links === */
+    const DEFAULT_LABELS = ['Twitter','Chart','Telegram','Community','Lore','Memes Library'];
     const HOTSPOT_LINKS = {
       'Twitter': 'https://x.com/UMSonSOL',
       'Chart': 'https://dexscreener.com/solana/ct9g9gddxwnvagvkjq9xoejvynpipr7uxx4akp6g8mhv',
       'Telegram': 'https://t.me/undergroundmoneysocietymemes',
       'Community': 'https://x.com/i/communities/1952904167753957408',
-      'Lore': 'popup'
+      'Lore': 'popup',
+      'Memes Library': 'library'
     };
 
-    /* === Generic asset resolver (images like scene3.png) === */
-    function resolveAssetSrc(filename, v = "6", base = "https://cryptopilot16.github.io/UMS/") {
+    /* === Generic asset resolver (for scene images like scene3.png) === */
+    function resolveAssetSrc(filename, v = "5", base = "https://cryptopilot16.github.io/UMS/") {
       const candidates = [
         `${filename}?v=${v}`,
         `./${filename}?v=${v}`,
@@ -120,14 +139,10 @@
 
     /* === Lore source resolver (video) === */
     const LORE_CANDIDATES = [
-      'lore.mp4?v=6',
-      'lore.MP4?v=6', // uppercase extension
-      './lore.mp4?v=6',
-      './lore.MP4?v=6',
-      '/UMS/lore.mp4?v=6',
-      '/UMS/lore.MP4?v=6',
-      'https://cryptopilot16.github.io/UMS/lore.mp4?v=6',
-      'https://cryptopilot16.github.io/UMS/lore.MP4?v=6'
+      'lore.mp4?v=5',
+      './lore.mp4?v=5',
+      '/UMS/lore.mp4?v=5',
+      'https://cryptopilot16.github.io/UMS/lore.mp4?v=5'
     ];
     function resolveLoreSrc(cands = LORE_CANDIDATES, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
@@ -149,6 +164,37 @@
       });
     }
 
+    /* === Memes Library (manifest-only) ===
+       Folder structure:
+         /MemesLibrary/
+           manifest.json
+           meme1.jpg
+           meme2.png
+       manifest.json example:
+         ["meme1.jpg","meme2.png","funny.webp"]
+    */
+    const LIBRARY_BASE = 'MemesLibrary/';
+    const LIBRARY_MANIFEST_CANDIDATES = [
+      LIBRARY_BASE + 'manifest.json?v=5',
+      './' + LIBRARY_BASE + 'manifest.json?v=5',
+      '/UMS/' + LIBRARY_BASE + 'manifest.json?v=5',
+      'https://cryptopilot16.github.io/UMS/' + LIBRARY_BASE + 'manifest.json?v=5',
+    ];
+
+    async function loadLibraryList() {
+      for (const url of LIBRARY_MANIFEST_CANDIDATES) {
+        try {
+          const resp = await fetch(url, { cache: 'no-store' });
+          if (!resp.ok) continue;
+          const arr = await resp.json();
+          if (Array.isArray(arr) && arr.length) {
+            return arr.map(n => n.trim()).filter(Boolean);
+          }
+        } catch (_) {}
+      }
+      throw new Error('manifest.json not found or invalid');
+    }
+
     /* === Scenes === */
     let scenes = [
       { background: 'scene1.mp4', type: 'video', class: 'darken', text: "Get ready. You're entering the Underground Money Society.", autoAdvance: true },
@@ -167,21 +213,24 @@
     function isMobileDevice() { return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
 
     function getHotspots() {
+      // Order must match DEFAULT_LABELS
       if (isMobileLandscape()) {
         return [
-          { x: '60%', y: '18%' },
-          { x: '74%', y: '20%' },
-          { x: '98%', y: '40%' },
-          { x: '44%', y: '40%' },
-          { x: '12%', y: '25%' }
+          { x: '60%', y: '18%' }, // Twitter
+          { x: '74%', y: '20%' }, // Chart
+          { x: '98%', y: '40%' }, // Telegram
+          { x: '44%', y: '40%' }, // Community
+          { x: '12%', y: '25%' }, // Lore
+          { x: '18%', y: '28%' }  // Memes Library (next to Lore)
         ];
       }
       return [
-        { x: '55%', y: '23%' },
-        { x: '69%', y: '25%' },
-        { x: '95%', y: '45%' },
-        { x: '39%', y: '45%' },
-        { x: '8%',  y: '30%' }
+        { x: '55%', y: '23%' }, // Twitter
+        { x: '69%', y: '25%' }, // Chart
+        { x: '95%', y: '45%' }, // Telegram
+        { x: '39%', y: '45%' }, // Community
+        { x: '8%',  y: '30%' }, // Lore
+        { x: '14%', y: '34%' }  // Memes Library (next to Lore)
       ];
     }
 
@@ -218,7 +267,7 @@
 
       if (current.type === 'video') {
         const video = document.createElement('video');
-        Object.assign(video, { src: current.background, autoplay: true, loop: false, muted: true, playsInline: true, preload: 'auto' });
+        Object.assign(video, { src: current.background, autoplay: true, loop: false, muted: true, playsInline: true });
         video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', ''); video.setAttribute('muted', '');
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
@@ -250,13 +299,14 @@
         const img = document.createElement('img'); img.className = 'pan-img'; img.alt = '';
         surface.appendChild(img);
 
+        // Hotspots INSIDE the surface so they move with the image
         const labels = current.labels || DEFAULT_LABELS;
         current.hotspots = getHotspots();
         (current.hotspots || []).forEach((hs, i) => {
           const dot = document.createElement('div');
           dot.className = 'hotspot';
-          dot.style.left = hs.x;  // % of image width
-          dot.style.top = hs.y;   // % of image height
+          dot.style.left = hs.x;
+          dot.style.top = hs.y;
           dot.setAttribute('data-label', labels[i] || '');
           attachHotspotHandlers(dot, labels[i]);
           surface.appendChild(dot);
@@ -376,7 +426,7 @@
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
-    /* ========== Lore modal (desktop+mobile-safe autoplay, with resolver) ========== */
+    /* ========== Lore + Library handling ========== */
     function restoreAudio() {
       const audio = document.getElementById('radio');
       if (_audioWasPlaying) audio.play().catch(()=>{}); else { try { audio.pause(); } catch {} }
@@ -385,68 +435,75 @@
     function handleHotspotClick(label) {
       const link = HOTSPOT_LINKS[label];
       if (link === 'popup') {
-        const popup = document.getElementById('popup');
-        const video = document.getElementById('popupVideo');
-        const audio = document.getElementById('radio');
-        const tapOverlay = document.getElementById('tapToPlay');
-
-        _audioWasPlaying = !audio.paused; try { audio.pause(); } catch {}
-
-        popup.style.display = 'flex'; popup.classList.add('show');
-
-        resolveLoreSrc().then((src) => {
-          const mobile = isMobileDevice();
-
-          // common prep
-          video.setAttribute('playsinline', '');
-          video.setAttribute('webkit-playsinline', '');
-          video.preload = 'auto';
-          video.src = src;
-          video.currentTime = 0;
-
-          if (!mobile) {
-            // DESKTOP: play with sound immediately
-            video.muted = false; video.removeAttribute('muted');
-            tapOverlay.style.display = 'none';
-            video.play().catch(() => {
-              // rare fallback: try muted first then unmute
-              video.muted = true; video.setAttribute('muted','');
-              video.play().then(() => { video.muted = false; video.removeAttribute('muted'); }).catch(()=>{});
-            });
-          } else {
-            // MOBILE: start muted to satisfy autoplay; then unmute
-            video.muted = true; video.setAttribute('muted','');
-            video.play().then(() => {
-              video.muted = false; video.removeAttribute('muted');
-              tapOverlay.style.display = 'none';
-            }).catch(() => {
-              tapOverlay.style.display = 'flex';
-            });
-
-            const startWithSound = (e) => {
-              e.stopPropagation();
-              tapOverlay.style.display = 'none';
-              video.muted = false; video.removeAttribute('muted');
-              video.play().catch(()=>{});
-            };
-            tapOverlay.onclick = startWithSound;
-            tapOverlay.addEventListener('touchend', startWithSound, { passive: true });
-            video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
-          }
-
-          video.onerror = () => console.error('Lore video failed to load:', src);
-          const onDone = () => restoreAudio();
-          video.onended = onDone; // do not auto-close; just restore audio
-          video.onemptied = onDone;
-
-        }).catch((err) => {
-          console.error(err);
-          // keep popup open for debugging; user can close
-        });
-
+        openLorePopup();
+      } else if (link === 'library') {
+        openLibraryPopup();
       } else if (link) {
         window.open(link, '_blank');
       }
+    }
+
+    function openLorePopup() {
+      const popup = document.getElementById('popup');
+      const video = document.getElementById('popupVideo');
+      const audio = document.getElementById('radio');
+      const tapOverlay = document.getElementById('tapToPlay');
+
+      _audioWasPlaying = !audio.paused; try { audio.pause(); } catch {}
+
+      popup.style.display = 'flex'; popup.classList.add('show');
+
+      resolveLoreSrc().then((src) => {
+        const mobile = isMobileDevice();
+
+        // common prep
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.preload = 'auto';
+        video.src = src;
+        video.currentTime = 0;
+
+        if (!mobile) {
+          // DESKTOP: play with sound immediately
+          video.muted = false; video.removeAttribute('muted');
+          tapOverlay.style.display = 'none';
+          video.play().catch(() => {
+            // rare fallback: try muted first then unmute
+            video.muted = true; video.setAttribute('muted','');
+            video.play().then(() => { video.muted = false; video.removeAttribute('muted'); }).catch(()=>{});
+          });
+        } else {
+          // MOBILE: start muted to satisfy autoplay; then unmute
+          video.muted = true; video.setAttribute('muted','');
+          video.play().then(() => {
+            video.muted = false; video.removeAttribute('muted');
+            tapOverlay.style.display = 'none';
+          }).catch(() => {
+            tapOverlay.style.display = 'flex';
+          });
+
+          const startWithSound = (e) => {
+            e.stopPropagation();
+            tapOverlay.style.display = 'none';
+            video.muted = false; video.removeAttribute('muted');
+            video.play().catch(()=>{});
+          };
+          tapOverlay.onclick = startWithSound;
+          tapOverlay.addEventListener('touchend', startWithSound, { passive: true });
+          video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
+        }
+
+        video.onerror = () => console.error('Lore video failed to load:', src);
+        const onDone = () => restoreAudio();
+        video.onended = onDone;
+        video.onemptied = onDone;
+
+      }).catch((err) => {
+        console.error(err);
+        popup.classList.remove('show');
+        popup.style.display = 'none';
+        restoreAudio();
+      });
     }
 
     function closePopup(e) {
@@ -468,6 +525,53 @@
       if (tapOverlay) tapOverlay.style.display = 'none';
 
       restoreAudio();
+    }
+
+    let _libraryLoadedOnce = false;
+    async function openLibraryPopup() {
+      const popup = document.getElementById('libraryPopup');
+      const grid = document.getElementById('libraryGrid');
+
+      if (!_libraryLoadedOnce) {
+        grid.innerHTML = '<div class="library-empty">Loading Memes Library…</div>';
+        try {
+          const files = await loadLibraryList();
+          grid.innerHTML = '';
+          for (const name of files) {
+            try {
+              const src = await resolveAssetSrc(`${LIBRARY_BASE}${name}`);
+              const cell = document.createElement('div');
+              cell.className = 'library-item';
+              const img = document.createElement('img');
+              img.loading = 'lazy';
+              img.decoding = 'async';
+              img.alt = name;
+              img.src = src;
+              // click opens the full image in new tab
+              cell.addEventListener('click', () => window.open(src, '_blank'));
+              cell.appendChild(img);
+              grid.appendChild(cell);
+            } catch {
+              // skip broken
+            }
+          }
+          if (!grid.children.length) {
+            grid.innerHTML = '<div class="library-empty">No valid images referenced in <code>manifest.json</code>.</div>';
+          }
+        } catch (e) {
+          grid.innerHTML = '<div class="library-empty">Missing <code>MemesLibrary/manifest.json</code> or invalid JSON.</div>';
+          console.error(e);
+        }
+        _libraryLoadedOnce = true;
+      }
+
+      popup.classList.add('show');
+    }
+
+    function closeLibrary(e) {
+      const popup = document.getElementById('libraryPopup');
+      if (e && e.target && e.target.id !== 'libCloseBtn') return;
+      popup.classList.remove('show');
     }
 
     function toggleAudio() {
@@ -494,8 +598,11 @@
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           const popup = document.getElementById('popup');
+          const lib = document.getElementById('libraryPopup');
           if (popup.style.display === 'flex') {
             closePopup({ currentTarget: popup, target: popup });
+          } else if (lib.classList.contains('show')) {
+            closeLibrary({ target: { id: 'libCloseBtn' } });
           }
         }
       });
@@ -503,4 +610,3 @@
   </script>
 </body>
 </html>
-
