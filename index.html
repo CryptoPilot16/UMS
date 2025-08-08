@@ -37,7 +37,7 @@
     #closeBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
     #closeBtn:hover { color: red; }
 
-    /* Scene 3 mobile landscape rotation */
+    /* Mobile landscape rotation for Scene 3 */
     @media (max-width: 768px) and (orientation: landscape) {
       #scene-image.scene3-mobile {
         background-size: contain !important;
@@ -74,6 +74,13 @@
   <div id="popup" onclick="closePopup(event)">
     <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
     <video id="popupVideo" controls playsinline></video>
+
+    <!-- Tap-to-Play overlay (shown if autoplay is blocked) -->
+    <div id="tapToPlay" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center; z-index:12; background:rgba(0,0,0,0.45);">
+      <button style="font-size:18px; padding:12px 18px; border-radius:8px; border:1px solid #fff; background:rgba(255,255,255,0.12); color:#fff;">
+        Tap to Play ▶
+      </button>
+    </div>
   </div>
 
   <script>
@@ -217,7 +224,6 @@
 
         stage.appendChild(surface);
         sceneContainer.appendChild(stage);
-
         img.addEventListener('load', () => setupPanorama(stage, surface, img));
 
       } else {
@@ -307,7 +313,7 @@
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
-    /* ========== Lore modal audio behavior ========== */
+    /* ========== Lore modal (mobile-safe playback) ========== */
     function restoreAudio() {
       const audio = document.getElementById('radio');
       if (_audioWasPlaying) audio.play().catch(()=>{});
@@ -320,28 +326,79 @@
         const popup = document.getElementById('popup');
         const video = document.getElementById('popupVideo');
         const audio = document.getElementById('radio');
+        const tapOverlay = document.getElementById('tapToPlay');
+
+        // snapshot & pause bg music
         _audioWasPlaying = !audio.paused;
         try { audio.pause(); } catch {}
+
+        // prepare video for iOS autoplay policies
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.setAttribute('muted', ''); // attribute matters on iOS
+        video.muted = true;              // ensure muted for autoplay
+        video.preload = 'auto';
         video.src = 'lore.mp4';
         video.currentTime = 0;
+        video.load();
+
+        // show popup
         popup.style.display = 'flex';
-        requestAnimationFrame(() => { popup.classList.add('show'); video.play().catch(()=>{}); });
-        video.onended = () => restoreAudio();
-        video.onemptied = () => restoreAudio();
-      } else if (link) window.open(link, '_blank');
+        requestAnimationFrame(async () => {
+          popup.classList.add('show');
+
+          // attempt muted autoplay in the user-gesture context
+          video.play()
+            .then(() => {
+              // success; keep muted (iOS usually requires another gesture to unmute)
+              tapOverlay.style.display = 'none';
+            })
+            .catch(() => {
+              // blocked -> show overlay; one tap will play with sound
+              tapOverlay.style.display = 'flex';
+            });
+        });
+
+        // Overlay tap = start playback with sound
+        const startWithSound = () => {
+          tapOverlay.style.display = 'none';
+          video.muted = false;
+          video.removeAttribute('muted');
+          video.play().catch(()=>{ /* if still blocked, controls remain */ });
+        };
+        tapOverlay.onclick = startWithSound;
+
+        // Hide overlay once playing anyway
+        video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
+
+        // Restore bg music when video ends/unloads
+        const onDone = () => restoreAudio();
+        video.onended = onDone;
+        video.onemptied = onDone;
+
+      } else if (link) {
+        window.open(link, '_blank');
+      }
     }
 
     function closePopup(e) {
       const isBackdrop = e && e.currentTarget && e.target === e.currentTarget;
       const isCloseBtn = e && e.target && e.target.id === 'closeBtn';
       if (!isBackdrop && !isCloseBtn) return;
+
       const popup = document.getElementById('popup');
       const video = document.getElementById('popupVideo');
+      const tapOverlay = document.getElementById('tapToPlay');
+
       try { video.pause(); } catch {}
       popup.classList.remove('show');
       popup.style.display = 'none';
+
       video.removeAttribute('src');
       video.load();
+
+      if (tapOverlay) tapOverlay.style.display = 'none';
+
       restoreAudio();
     }
 
