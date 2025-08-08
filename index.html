@@ -51,11 +51,7 @@
 
     /* Phone landscape (height-based so iPhone landscape matches) */
     @media (orientation: landscape) and (max-height: 500px) {
-      #scene-image.scene3-mobile {
-        background-size: contain !important;
-        transform: rotate(90deg);
-        transform-origin: center center;
-      }
+      #scene-image.scene3-mobile { background-size: contain !important; transform: rotate(90deg); transform-origin: center center; }
       .hotspot.mobile-scene3 { transform: rotate(-90deg); }
       .hotspot[data-label="Lore"] { top: 60% !important; }
       #ui { top: auto; bottom: 20px; left: 20px; }
@@ -114,7 +110,7 @@
     };
 
     /* === Generic asset resolver (for scene images like scene3.png) === */
-    function resolveAssetSrc(filename, v = "5", base = "https://cryptopilot16.github.io/UMS/") {
+    function resolveAssetSrc(filename, v = "6", base = "https://cryptopilot16.github.io/UMS/") {
       const candidates = [
         `${filename}?v=${v}`,
         `./${filename}?v=${v}`,
@@ -139,10 +135,10 @@
 
     /* === Lore source resolver (video) === */
     const LORE_CANDIDATES = [
-      'lore.mp4?v=5',
-      './lore.mp4?v=5',
-      '/UMS/lore.mp4?v=5',
-      'https://cryptopilot16.github.io/UMS/lore.mp4?v=5'
+      'lore.mp4?v=6',
+      './lore.mp4?v=6',
+      '/UMS/lore.mp4?v=6',
+      'https://cryptopilot16.github.io/UMS/lore.mp4?v=6'
     ];
     function resolveLoreSrc(cands = LORE_CANDIDATES, timeoutMs = 5000) {
       return new Promise((resolve, reject) => {
@@ -165,7 +161,7 @@
     }
 
     /* === Memes Library (manifest-only) ===
-       Folder structure:
+       Folder:
          /MemesLibrary/
            manifest.json
            meme1.jpg
@@ -175,10 +171,10 @@
     */
     const LIBRARY_BASE = 'MemesLibrary/';
     const LIBRARY_MANIFEST_CANDIDATES = [
-      LIBRARY_BASE + 'manifest.json?v=5',
-      './' + LIBRARY_BASE + 'manifest.json?v=5',
-      '/UMS/' + LIBRARY_BASE + 'manifest.json?v=5',
-      'https://cryptopilot16.github.io/UMS/' + LIBRARY_BASE + 'manifest.json?v=5',
+      LIBRARY_BASE + 'manifest.json?v=6',
+      './' + LIBRARY_BASE + 'manifest.json?v=6',
+      '/UMS/' + LIBRARY_BASE + 'manifest.json?v=6',
+      'https://cryptopilot16.github.io/UMS/' + LIBRARY_BASE + 'manifest.json?v=6',
     ];
 
     async function loadLibraryList() {
@@ -187,7 +183,7 @@
           const resp = await fetch(url, { cache: 'no-store' });
           if (!resp.ok) continue;
           const arr = await resp.json();
-          if (Array.isArray(arr) && arr.length) {
+          if (Array.isArray(arr)) {
             return arr.map(n => n.trim()).filter(Boolean);
           }
         } catch (_) {}
@@ -206,6 +202,9 @@
     /* === State === */
     let _audioWasPlaying = false;
     let pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
+    let _libraryLoadedOnce = false;
+    let _libraryFiles = [];
+    let _libraryResolved = [];
 
     /* === Helpers === */
     function isMobilePortrait() { return window.matchMedia('(orientation: portrait)').matches && window.innerWidth <= 768; }
@@ -506,6 +505,60 @@
       });
     }
 
+    let _libraryInFlight = false;
+    async function openLibraryPopup() {
+      if (_libraryInFlight) return;
+      _libraryInFlight = true;
+
+      const popup = document.getElementById('libraryPopup');
+      const grid  = document.getElementById('libraryGrid');
+
+      if (!_libraryLoadedOnce) {
+        grid.innerHTML = '<div class="library-empty">Loading Memes Library…</div>';
+        _libraryFiles = [];
+        _libraryResolved = [];
+        try {
+          const files = await loadLibraryList();
+          grid.innerHTML = '';
+          for (const name of files) {
+            try {
+              const src = await resolveAssetSrc(`${LIBRARY_BASE}${name}`);
+              _libraryFiles.push(name);
+              _libraryResolved.push(src);
+
+              const cell = document.createElement('div');
+              cell.className = 'library-item';
+              const img = document.createElement('img');
+              img.loading = 'lazy';
+              img.decoding = 'async';
+              img.alt = name;
+              img.src = src;
+              // Tap opens full image (mobile can long-press to save)
+              cell.addEventListener('click', () => window.open(src, '_blank'));
+              cell.appendChild(img);
+              grid.appendChild(cell);
+            } catch { /* skip broken */ }
+          }
+          if (!grid.children.length) {
+            grid.innerHTML = '<div class="library-empty">No valid images referenced in <code>manifest.json</code>.</div>';
+          }
+        } catch (e) {
+          grid.innerHTML = '<div class="library-empty">Missing <code>MemesLibrary/manifest.json</code> or invalid JSON.</div>';
+          console.error(e);
+        }
+        _libraryLoadedOnce = true;
+      }
+
+      popup.classList.add('show');
+      _libraryInFlight = false;
+    }
+
+    function closeLibrary(e) {
+      const popup = document.getElementById('libraryPopup');
+      if (e && e.target && e.target.id !== 'libCloseBtn') return;
+      popup.classList.remove('show');
+    }
+
     function closePopup(e) {
       const isBackdrop = e && e.currentTarget && e.target === e.currentTarget;
       const isCloseBtn = e && e.target && e.target.id === 'closeBtn';
@@ -525,53 +578,6 @@
       if (tapOverlay) tapOverlay.style.display = 'none';
 
       restoreAudio();
-    }
-
-    let _libraryLoadedOnce = false;
-    async function openLibraryPopup() {
-      const popup = document.getElementById('libraryPopup');
-      const grid = document.getElementById('libraryGrid');
-
-      if (!_libraryLoadedOnce) {
-        grid.innerHTML = '<div class="library-empty">Loading Memes Library…</div>';
-        try {
-          const files = await loadLibraryList();
-          grid.innerHTML = '';
-          for (const name of files) {
-            try {
-              const src = await resolveAssetSrc(`${LIBRARY_BASE}${name}`);
-              const cell = document.createElement('div');
-              cell.className = 'library-item';
-              const img = document.createElement('img');
-              img.loading = 'lazy';
-              img.decoding = 'async';
-              img.alt = name;
-              img.src = src;
-              // click opens the full image in new tab
-              cell.addEventListener('click', () => window.open(src, '_blank'));
-              cell.appendChild(img);
-              grid.appendChild(cell);
-            } catch {
-              // skip broken
-            }
-          }
-          if (!grid.children.length) {
-            grid.innerHTML = '<div class="library-empty">No valid images referenced in <code>manifest.json</code>.</div>';
-          }
-        } catch (e) {
-          grid.innerHTML = '<div class="library-empty">Missing <code>MemesLibrary/manifest.json</code> or invalid JSON.</div>';
-          console.error(e);
-        }
-        _libraryLoadedOnce = true;
-      }
-
-      popup.classList.add('show');
-    }
-
-    function closeLibrary(e) {
-      const popup = document.getElementById('libraryPopup');
-      if (e && e.target && e.target.id !== 'libCloseBtn') return;
-      popup.classList.remove('show');
     }
 
     function toggleAudio() {
@@ -610,3 +616,4 @@
   </script>
 </body>
 </html>
+
