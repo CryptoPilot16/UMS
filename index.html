@@ -24,7 +24,7 @@
 
     /* UI */
     #ui { position: absolute; top: 20px; left: 20px; z-index: 4; }
-    .control-stack { display: flex; flex-direction: column; align-items: flex-start; } /* <— NEW: replaces inline style */
+    .control-stack { display: flex; flex-direction: column; align-items: flex-start; }
     .btn { padding: 8px 16px; font-size: 1em; background: rgba(255,255,255,0.1); border: 1px solid #888; color: white; cursor: pointer; margin: 6px; transition: 0.3s; }
     .btn:hover { background: rgba(255,255,255,0.3); }
     .btn.disabled { opacity: 0.3; pointer-events: none; }
@@ -38,17 +38,18 @@
     #closeBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
     #closeBtn:hover { color: red; }
 
-    /* Mobile landscape rotation for Scene 3 + side-by-side buttons */
-    @media (max-width: 768px) and (orientation: landscape) {
+    /* Phone landscape (height-based so iPhone landscape matches) */
+    @media (orientation: landscape) and (max-height: 500px) {
       #scene-image.scene3-mobile {
         background-size: contain !important;
         transform: rotate(90deg);
         transform-origin: center center;
       }
       .hotspot.mobile-scene3 { transform: rotate(-90deg); }
-      .hotspot[data-label="Lore"] { top: 60% !important; } /* move lower to avoid audio btn */
+      .hotspot[data-label="Lore"] { top: 60% !important; }
       #ui { top: auto; bottom: 20px; left: 20px; }
-      .control-stack { flex-direction: row; align-items: center; gap: 8px; } /* <— NEW: buttons side-by-side in landscape */
+      /* buttons side-by-side in landscape */
+      .control-stack { flex-direction: row; align-items: center; gap: 8px; }
     }
 
     /* Scene 3 mobile portrait – swipe panorama scaffold */
@@ -109,8 +110,13 @@
     // Scene 3 mobile portrait pan state
     let pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
 
-    function isMobilePortrait() { return window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches; }
-    function isMobileLandscape() { return window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches; }
+    function isMobilePortrait() {
+      return window.matchMedia('(orientation: portrait)').matches && window.innerWidth <= 768;
+    }
+    // Match the CSS: landscape + short height (phones)
+    function isMobileLandscape() {
+      return window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 500;
+    }
 
     function getHotspots() {
       if (isMobileLandscape()) {
@@ -332,7 +338,7 @@
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
-    /* ========== Lore modal (mobile-safe playback) ========== */
+    /* ========== Lore modal (desktop+mobile-safe autoplay, unmute on success) ========== */
     function restoreAudio() {
       const audio = document.getElementById('radio');
       if (_audioWasPlaying) audio.play().catch(()=>{});
@@ -350,7 +356,7 @@
         _audioWasPlaying = !audio.paused;
         try { audio.pause(); } catch {}
 
-        // Prep for iOS: inline, muted, autoplay-friendly
+        // Start muted so autoplay works; unmute after play() resolves
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.setAttribute('muted', '');
@@ -359,13 +365,20 @@
         video.src = LORE_SRC;
         video.currentTime = 0;
 
-        // show popup and try to play immediately (same gesture)
         popup.style.display = 'flex';
         popup.classList.add('show');
 
         video.play()
-          .then(() => { tapOverlay.style.display = 'none'; })
-          .catch(() => { tapOverlay.style.display = 'flex'; });
+          .then(() => {
+            // Autoplay succeeded: unmute immediately
+            video.muted = false;
+            video.removeAttribute('muted');
+            tapOverlay.style.display = 'none';
+          })
+          .catch(() => {
+            // Autoplay blocked: show tap overlay
+            tapOverlay.style.display = 'flex';
+          });
 
         const startWithSound = (e) => {
           e.stopPropagation();
