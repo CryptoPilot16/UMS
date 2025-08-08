@@ -24,6 +24,7 @@
 
     /* UI */
     #ui { position: absolute; top: 20px; left: 20px; z-index: 4; }
+    .control-stack { display: flex; flex-direction: column; align-items: flex-start; } /* <— NEW: replaces inline style */
     .btn { padding: 8px 16px; font-size: 1em; background: rgba(255,255,255,0.1); border: 1px solid #888; color: white; cursor: pointer; margin: 6px; transition: 0.3s; }
     .btn:hover { background: rgba(255,255,255,0.3); }
     .btn.disabled { opacity: 0.3; pointer-events: none; }
@@ -37,7 +38,7 @@
     #closeBtn { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; background: transparent; border: none; color: white; cursor: pointer; z-index: 11; }
     #closeBtn:hover { color: red; }
 
-    /* Mobile landscape rotation for Scene 3 */
+    /* Mobile landscape rotation for Scene 3 + side-by-side buttons */
     @media (max-width: 768px) and (orientation: landscape) {
       #scene-image.scene3-mobile {
         background-size: contain !important;
@@ -47,13 +48,14 @@
       .hotspot.mobile-scene3 { transform: rotate(-90deg); }
       .hotspot[data-label="Lore"] { top: 60% !important; } /* move lower to avoid audio btn */
       #ui { top: auto; bottom: 20px; left: 20px; }
+      .control-stack { flex-direction: row; align-items: center; gap: 8px; } /* <— NEW: buttons side-by-side in landscape */
     }
 
     /* Scene 3 mobile portrait – swipe panorama scaffold */
     .pan-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
-    .pan-surface { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; touch-action: none; } /* added touch-action */
+    .pan-surface { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; touch-action: none; }
     .pan-img { position: absolute; top: 0; left: 0; height: 100%; width: auto; user-select: none; -webkit-user-drag: none; pointer-events: none; }
-    .pan-surface .hotspot { pointer-events: auto; } /* tappable while moving with image */
+    .pan-surface .hotspot { pointer-events: auto; }
 
     /* Tap-to-Play overlay */
     #tapToPlay { display:none; position:absolute; inset:0; align-items:center; justify-content:center; z-index:12; background:rgba(0,0,0,0.45); }
@@ -64,7 +66,7 @@
   <div id="scene"></div>
 
   <div id="ui">
-    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+    <div class="control-stack">
       <button id="advanceBtn" class="btn" onclick="advanceScene()">advance</button>
       <button class="btn" onclick="toggleAudio()">audio</button>
     </div>
