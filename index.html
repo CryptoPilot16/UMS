@@ -48,7 +48,6 @@
       .hotspot.mobile-scene3 { transform: rotate(-90deg); }
       .hotspot[data-label="Lore"] { top: 60% !important; }
       #ui { top: auto; bottom: 20px; left: 20px; }
-      /* buttons side-by-side in landscape */
       .control-stack { flex-direction: row; align-items: center; gap: 8px; }
     }
 
@@ -80,7 +79,7 @@
   <!-- Popup modal -->
   <div id="popup" onclick="closePopup(event)">
     <button id="closeBtn" onclick="closePopup(event)" aria-label="Close video">✕</button>
-    <video id="popupVideo" controls playsinline webkit-playsinline muted autoplay preload="auto" crossorigin="anonymous"></video>
+    <video id="popupVideo" controls playsinline webkit-playsinline preload="auto" crossorigin="anonymous"></video>
     <div id="tapToPlay"><button>Tap to Play ▶</button></div>
   </div>
 
@@ -113,9 +112,11 @@
     function isMobilePortrait() {
       return window.matchMedia('(orientation: portrait)').matches && window.innerWidth <= 768;
     }
-    // Match the CSS: landscape + short height (phones)
     function isMobileLandscape() {
       return window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 500;
+    }
+    function isMobileDevice() {
+      return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     }
 
     function getHotspots() {
@@ -223,10 +224,10 @@
         (current.hotspots || []).forEach((hs, i) => {
           const dot = document.createElement('div');
           dot.className = 'hotspot';
-          dot.style.left = hs.x;  // % of image width
-          dot.style.top = hs.y;   // % of image height
+          dot.style.left = hs.x;
+          dot.style.top = hs.y;
           dot.setAttribute('data-label', labels[i] || '');
-          dot.onclick = (ev) => { ev.stopPropagation(); handleHotspotClick(labels[i]); };
+          attachHotspotHandlers(dot, labels[i]);
           surface.appendChild(dot);
         });
 
@@ -254,12 +255,25 @@
           dot.style.left = hs.x;
           dot.style.top = hs.y;
           dot.setAttribute('data-label', labels[i] || '');
-          dot.onclick = () => handleHotspotClick(labels[i]);
+          attachHotspotHandlers(dot, labels[i]);
           sceneContainer.appendChild(dot);
         });
       }
 
       document.getElementById('dialogue').textContent = current.text;
+    }
+
+    function attachHotspotHandlers(el, label) {
+      // Click for desktop
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        handleHotspotClick(label);
+      });
+      // Touch for iOS/Android (use touchend so it feels like a tap)
+      el.addEventListener('touchend', (ev) => {
+        ev.stopPropagation();
+        handleHotspotClick(label);
+      }, { passive: true });
     }
 
     /* ========== Panorama (Scene 3 mobile portrait, drag only) ========== */
@@ -291,6 +305,9 @@
 
       // drag handlers (attach to the SURFACE so iOS allows preventDefault)
       const onDown = (e) => {
+        // 👉 Ignore drags that start on a hotspot so taps work
+        if (e.target && e.target.closest && e.target.closest('.hotspot')) return;
+
         const x = (e.touches ? e.touches[0].clientX : e.clientX);
         pan.startX = x - pan.x;
         pan.dragging = true;
@@ -312,7 +329,7 @@
       surfaceEl.addEventListener('touchmove',  onMove, { passive: false });
       surfaceEl.addEventListener('touchend',   onUp,   { passive: true  });
 
-      surfaceEl.addEventListener('mousedown', (e) => { e.preventDefault(); onDown(e); }, { passive: false });
+      surfaceEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.hotspot')) { e.preventDefault(); onDown(e); } }, { passive: false });
       window.addEventListener('mousemove', onMove, { passive: false });
       window.addEventListener('mouseup',   onUp,   { passive: true  });
 
@@ -338,7 +355,7 @@
       pan = { active: false, x: 0, startX: 0, minX: 0, maxX: 0, stageEl: null, surfaceEl: null, imgEl: null, listeners: [] };
     }
 
-    /* ========== Lore modal (desktop+mobile-safe autoplay, unmute on success) ========== */
+    /* ========== Lore modal (desktop+mobile-safe autoplay) ========== */
     function restoreAudio() {
       const audio = document.getElementById('radio');
       if (_audioWasPlaying) audio.play().catch(()=>{});
@@ -356,11 +373,12 @@
         _audioWasPlaying = !audio.paused;
         try { audio.pause(); } catch {}
 
-        // Start muted so autoplay works; unmute after play() resolves
+        // Desktop vs Mobile behavior
+        const mobile = isMobileDevice();
+
+        // common setup
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.setAttribute('muted', '');
-        video.muted = true;
         video.preload = 'auto';
         video.src = LORE_SRC;
         video.currentTime = 0;
@@ -368,36 +386,53 @@
         popup.style.display = 'flex';
         popup.classList.add('show');
 
-        video.play()
-          .then(() => {
-            // Autoplay succeeded: unmute immediately
-            video.muted = false;
-            video.removeAttribute('muted');
-            tapOverlay.style.display = 'none';
-          })
-          .catch(() => {
-            // Autoplay blocked: show tap overlay
-            tapOverlay.style.display = 'flex';
-          });
-
-        const startWithSound = (e) => {
-          e.stopPropagation();
-          tapOverlay.style.display = 'none';
+        if (!mobile) {
+          // DESKTOP: play with sound immediately (the hotspot click is a gesture)
           video.muted = false;
           video.removeAttribute('muted');
-          video.play().catch(()=>{});
-        };
-        tapOverlay.onclick = startWithSound;
-        tapOverlay.addEventListener('touchend', startWithSound);
+          tapOverlay.style.display = 'none';
+          video.play().catch(() => {
+            // As a fallback (rare), try muted then unmute
+            video.muted = true;
+            video.setAttribute('muted','');
+            video.play().then(() => { video.muted = false; video.removeAttribute('muted'); }).catch(()=>{});
+          });
+        } else {
+          // MOBILE: start muted so autoplay succeeds, then unmute after play
+          video.muted = true;
+          video.setAttribute('muted','');
+          video.play()
+            .then(() => {
+              // bring in audio once it's rolling
+              video.muted = false;
+              video.removeAttribute('muted');
+              tapOverlay.style.display = 'none';
+            })
+            .catch(() => {
+              // if still blocked, show one-tap overlay
+              tapOverlay.style.display = 'flex';
+            });
 
-        video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
+          const startWithSound = (e) => {
+            e.stopPropagation();
+            tapOverlay.style.display = 'none';
+            video.muted = false;
+            video.removeAttribute('muted');
+            video.play().catch(()=>{});
+          };
+          tapOverlay.onclick = startWithSound;
+          tapOverlay.addEventListener('touchend', startWithSound, { passive: true });
+
+          video.addEventListener('play', () => { tapOverlay.style.display = 'none'; }, { once: true });
+        }
+
         video.onerror = () => console.error('Lore video failed to load. Check URL/MIME/CORS.');
-
         const onDone = () => restoreAudio();
         video.onended = onDone;
         video.onemptied = onDone;
 
       } else if (link) {
+        // Open external links
         window.open(link, '_blank');
       }
     }
