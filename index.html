@@ -70,7 +70,7 @@
     }
     #closeBtn:hover { color: red; }
 
-    /* Scene 3 — mobile landscape rotation */
+    /* Scene 3 — mobile landscape rotation (unchanged) */
     @media (max-width: 768px) and (orientation: landscape) {
       #scene-image.scene3-mobile {
         background: url('scene3-vertical.png') center/contain no-repeat !important;
@@ -82,6 +82,32 @@
       }
       #ui { top: auto; bottom: 20px; left: 20px; }
     }
+
+    /* Scene 3 — mobile portrait panorama stage */
+    .pan-stage {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;          /* we handle panning via transform */
+      touch-action: pan-y;       /* allow vertical gestures to scroll page if needed, we handle x */
+    }
+    .pan-surface {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 200vw;              /* 2x viewport width to allow sliding; tweak as needed */
+      will-change: transform;
+    }
+    .pan-surface #scene-image {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;               /* matches surface width */
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+    /* Hotspots inside pan-surface move with the image */
+    .pan-surface .hotspot { pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -124,8 +150,21 @@
     // AUDIO STATE SNAPSHOT (so we can restore after Lore finishes/closes)
     let _audioWasPlaying = false;
 
+    // Panorama state (for Scene 3 mobile portrait)
+    const PAN_SCALE = 2; // 2x viewport width
+    let pan = {
+      active: false,
+      x: 0, startX: 0, dragging: false,
+      minX: 0, maxX: 0,
+      surfaceEl: null, stageEl: null,
+      tiltEnabled: false, tiltRAF: null, tiltTargetX: 0
+    };
+
     function isMobileLandscape() {
       return window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
+    }
+    function isMobilePortrait() {
+      return window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches;
     }
 
     function getHotspots() {
@@ -154,17 +193,22 @@
     }
 
     function updateScene() {
+      teardownPanorama(); // in case we were in Scene 3 portrait previously
+
       const sceneContainer = document.getElementById('scene');
       sceneContainer.innerHTML = '';
       const current = scenes[currentScene];
 
-      // If Scene 3 + mobile landscape, flag special class for rotated layout
-      const rotateForMobile = current.background.includes('scene3') && isMobileLandscape();
+      const isScene3 = current.background.includes('scene3');
+      const rotateForMobile = isScene3 && isMobileLandscape();
+      const panForMobile = isScene3 && isMobilePortrait();
+
       if (rotateForMobile) {
         current.hotspots = getHotspots();
         current.class = (current.class + ' scene3-mobile').trim();
       }
 
+      // RENDER: Scene types
       if (current.type === 'video') {
         const video = document.createElement('video');
         video.src = current.background;
@@ -174,36 +218,184 @@
         video.playsInline = true;
         if (current.class) video.className = current.class;
         sceneContainer.appendChild(video);
+      } else if (current.type === 'image' && panForMobile) {
+        // === Scene 3, Mobile PORTRAIT: Panorama mode (drag + tilt) ===
+        const stage = document.createElement('div');
+        stage.className = 'pan-stage';
+        const surface = document.createElement('div');
+        surface.className = 'pan-surface';
+        stage.appendChild(surface);
+
+        const img = document.createElement('div');
+        img.id = 'scene-image';
+        img.style.background = `url('${current.background}') center/cover no-repeat`;
+        surface.appendChild(img);
+
+        // Hotspots inside surface (move with image)
+        const labels = current.labels || DEFAULT_LABELS;
+        current.hotspots = getHotspots();
+        if (current.hotspots) {
+          current.hotspots.forEach((hs, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'hotspot';
+            dot.style.left = hs.x;
+            dot.style.top = hs.y;
+            dot.setAttribute('data-label', labels[i] || '');
+            dot.onclick = (ev) => { ev.stopPropagation(); handleHotspotClick(labels[i]); };
+            surface.appendChild(dot);
+          });
+        }
+
+        sceneContainer.appendChild(stage);
+
+        // Setup panorama dragging + tilt
+        setupPanorama(stage, surface);
+
       } else if (current.type === 'image') {
+        // Default image render (desktop + mobile landscape)
         const img = document.createElement('div');
         img.id = 'scene-image';
         img.style.background = `url('${current.background}') center/cover no-repeat`;
         if (current.class) img.className = current.class;
         sceneContainer.appendChild(img);
-      }
 
-      if (current.hotspots) {
-        const labels = current.labels || DEFAULT_LABELS;
-        current.hotspots.forEach((hs, i) => {
-          const dot = document.createElement('div');
-          dot.className = 'hotspot';
-          if (rotateForMobile) {
-            dot.classList.add('mobile-scene3');
-          }
-          dot.style.left = hs.x;
-          dot.style.top = hs.y;
-          dot.setAttribute('data-label', labels[i] || '');
-          dot.onclick = () => handleHotspotClick(labels[i]);
-          sceneContainer.appendChild(dot);
-        });
+        // Hotspots on top of image
+        if (current.hotspots) {
+          const labels = current.labels || DEFAULT_LABELS;
+          current.hotspots.forEach((hs, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'hotspot';
+            if (rotateForMobile) {
+              dot.classList.add('mobile-scene3');
+            }
+            dot.style.left = hs.x;
+            dot.style.top = hs.y;
+            dot.setAttribute('data-label', labels[i] || '');
+            dot.onclick = () => handleHotspotClick(labels[i]);
+            sceneContainer.appendChild(dot);
+          });
+        }
       }
 
       document.getElementById('dialogue').textContent = current.text;
     }
 
+    // === Panorama (Scene 3 mobile PORTRAIT) ===
+    function setupPanorama(stageEl, surfaceEl) {
+      pan.active = true;
+      pan.stageEl = stageEl;
+      pan.surfaceEl = surfaceEl;
+      pan.x = 0;
+      const stageW = pan.stageEl.clientWidth;
+      const surfaceW = stageW * PAN_SCALE; // because .pan-surface is 200vw
+      pan.maxX = 0;
+      pan.minX = -(surfaceW - stageW);
+      applyPan();
+
+      // Touch/drag
+      const onTouchStart = (e) => {
+        pan.dragging = true;
+        const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
+        pan.startX = pageX - pan.x;
+        // Attempt to enable tilt on first interaction (iOS permission)
+        maybeEnableTilt();
+      };
+      const onTouchMove = (e) => {
+        if (!pan.dragging) return;
+        const pageX = (e.touches ? e.touches[0].pageX : e.pageX);
+        pan.x = clamp(pageX - pan.startX, pan.minX, pan.maxX);
+        applyPan();
+      };
+      const endDrag = () => { pan.dragging = false; };
+
+      stageEl.addEventListener('touchstart', onTouchStart, {passive:true});
+      stageEl.addEventListener('touchmove', onTouchMove, {passive:true});
+      stageEl.addEventListener('touchend', endDrag);
+      stageEl.addEventListener('mousedown', (e)=>{ e.preventDefault(); onTouchStart(e); });
+      window.addEventListener('mousemove', onTouchMove);
+      window.addEventListener('mouseup', endDrag);
+
+      // Save listeners for teardown
+      pan._listeners = [
+        ['touchstart', onTouchStart, stageEl],
+        ['touchmove', onTouchMove, stageEl],
+        ['touchend', endDrag, stageEl],
+        ['mousedown', (e)=>{ e.preventDefault(); onTouchStart(e); }, stageEl],
+        ['mousemove', onTouchMove, window],
+        ['mouseup', endDrag, window],
+      ];
+
+      // Tilt
+      window.addEventListener('deviceorientation', handleTilt, true);
+      pan._listeners.push(['deviceorientation', handleTilt, window]);
+      startTiltRAF();
+    }
+
+    function teardownPanorama() {
+      if (!pan.active) return;
+      // Remove listeners
+      if (pan._listeners) {
+        pan._listeners.forEach(([type, fn, target]) => target.removeEventListener(type, fn));
+      }
+      window.removeEventListener('deviceorientation', handleTilt, true);
+      cancelAnimationFrame(pan.tiltRAF);
+      // Reset state
+      pan = {
+        active: false, x: 0, startX: 0, dragging: false,
+        minX: 0, maxX: 0, surfaceEl: null, stageEl: null,
+        tiltEnabled: false, tiltRAF: null, tiltTargetX: 0
+      };
+    }
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function applyPan() {
+      if (!pan.surfaceEl) return;
+      pan.surfaceEl.style.transform = `translate3d(${pan.x}px, 0, 0)`;
+    }
+
+    // Tilt support
+    function maybeEnableTilt() {
+      if (pan.tiltEnabled) return;
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // iOS requires a user gesture to request permission
+        DeviceOrientationEvent.requestPermission().then((res) => {
+          if (res === 'granted') pan.tiltEnabled = true;
+        }).catch(()=>{ /* ignore */ });
+      } else {
+        // Android/others usually allow without prompt
+        pan.tiltEnabled = true;
+      }
+    }
+
+    function handleTilt(e) {
+      if (!pan.active || !pan.tiltEnabled || pan.dragging) return;
+      // gamma: left-right tilt, typically -90..90
+      const gamma = e.gamma;
+      if (gamma == null) return;
+      // Map gamma (-45..45) to pan range (minX..maxX)
+      const clamped = Math.max(-45, Math.min(45, gamma));
+      const t = (clamped + 45) / 90; // 0..1
+      const target = pan.minX + (pan.maxX - pan.minX) * t;
+      pan.tiltTargetX = target;
+    }
+
+    function startTiltRAF() {
+      const tick = () => {
+        if (pan.active && pan.tiltEnabled && !pan.dragging) {
+          // Smoothly approach tilt target
+          pan.x += (pan.tiltTargetX - pan.x) * 0.08;
+          pan.x = clamp(pan.x, pan.minX, pan.maxX);
+          applyPan();
+        }
+        pan.tiltRAF = requestAnimationFrame(tick);
+      };
+      pan.tiltRAF = requestAnimationFrame(tick);
+    }
+
+    // ===== Audio restore logic for Lore (unchanged) =====
     function restoreAudio() {
       const audio = document.getElementById('radio');
-      // Resume only if it was playing before; otherwise keep it paused
       if (_audioWasPlaying) {
         audio.play().catch(()=>{});
       } else {
@@ -266,8 +458,8 @@
       if (audio.paused) { audio.currentTime = 0; audio.play(); } else { audio.pause(); }
     }
 
+    // Recompute scene 3 layout on size/orientation changes
     window.addEventListener('resize', () => {
-      // Recompute hotspot layout + rotation on orientation/size changes
       scenes[2].hotspots = getHotspots();
       updateScene();
     });
@@ -299,6 +491,4 @@
   </script>
 </body>
 </html>
-
-
 
